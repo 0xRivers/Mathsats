@@ -19,7 +19,7 @@ Start with a parent-managed ecash pot and separate child balances. A parent can 
 
 Next implementation milestones:
 
-1. Generate and verify quiz questions on the server; current completion scores are supplied by the browser and are not suitable for payouts.
+1. Server-generated questions and one-shot answer checks replace browser-supplied completion scores. **Implemented in source and deployed to the existing Number Quest site; identity hardening remains.**
 2. Add an atomic reward ledger with idempotent awards, available/reserved balances, daily caps and a parent pause control.
 3. Integrate a Cashu test mint, including fee accounting, encrypted proof storage, backups and withdrawal recovery.
 4. Add parent-approved ecash exports or withdrawals, then pilot with a small funded balance.
@@ -43,7 +43,9 @@ Build with a current Node.js runtime:
 node scripts/build.mjs
 ```
 
-Output is generated in `dist/`. The Worker expects a D1-compatible `DB` binding and a server-side `PARENT_EMAIL` environment variable. Apply the included migration before serving database routes.
+Output is generated in `dist/`. The Worker expects a D1-compatible `DB` binding and a server-side `PARENT_EMAIL` environment variable. Apply both included migrations, in order, before deploying the Worker. The second migration adds server-owned rounds and questions. The old `/api/finish` endpoint now rejects browser-supplied scores. Deploy the schema before the new Worker; existing game sessions will restart when the new client loads.
+
+Each server question has a 10-minute hard expiry and each round has a one-hour hard expiry. The child timer is a play aid and pauses in the menu; its chosen seconds are not a payout-grade server-enforced limit. Round IDs are bearer capabilities. Player selection is not independent child authentication, and automated guessing or farming remains possible. Do not enable payouts until the child and parent identity model, abuse limits and reward ledger are complete.
 
 Parent authentication currently depends on trusted identity headers supplied by the Sites hosting platform. A different host must replace this with verified authentication and must not trust identity headers supplied directly by clients. A child using an already authenticated parent session can inherit its access.
 
@@ -82,4 +84,4 @@ Use Node.js 22.13+ for the included SQLite-backed regression check:
 npm test
 ```
 
-These checks verify existing score totals, duplicate completion handling and parent access checks in the original hosting model. They do not establish payout-safe scoring or independent child/parent authentication.
+The checks cover issued questions, arithmetic, replayed answers, forged browser scores, expiry, score aggregation and parent access. They do not establish independent child/parent authentication or payout safety.
