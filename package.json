@@ -1,0 +1,1 @@
+{"name":"mathsats","private":true,"type":"module","scripts":{"build":"node scripts/build.mjs","test":"npm run build && node tests/score-server.mjs"},"engines":{"node":">=22.13"}}
