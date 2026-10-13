@@ -43,11 +43,11 @@ Build with a current Node.js runtime:
 node scripts/build.mjs
 ```
 
-Output is generated in `dist/`. The Worker expects a D1-compatible `DB` binding and a server-side `PARENT_EMAIL` environment variable. Apply both included migrations, in order, before deploying the Worker. The second migration adds server-owned rounds and questions. The old `/api/finish` endpoint now rejects browser-supplied scores. Deploy the schema before the new Worker; existing game sessions will restart when the new client loads.
+Output is generated in `dist/`. The Worker expects a D1-compatible `DB` binding and server-side `PARENT_EMAIL`, `AUTH_SECRET` and `PARENT_ACCESS_CODE` secrets. Apply all three migrations, in order, before deploying the Worker. The second migration adds server-owned rounds and questions; the third adds child PIN credentials. The old `/api/finish` endpoint now rejects browser-supplied scores. Deploy the schema before the new Worker; existing game sessions will restart when the new client loads.
 
-Each server question has a 10-minute hard expiry and each round has a one-hour hard expiry. The child timer is a play aid and pauses in the menu; its chosen seconds are not a payout-grade server-enforced limit. Round IDs are bearer capabilities. Player selection is not independent child authentication, and automated guessing or farming remains possible. Do not enable payouts until the child and parent identity model, abuse limits and reward ledger are complete.
+Each server question has a 10-minute hard expiry and each round has a one-hour hard expiry. The child timer is a play aid and pauses in the menu; its chosen seconds are not a payout-grade server-enforced limit. Round IDs are bound to a PIN-authenticated player session. A shared six-digit PIN does not prove which child is physically present; automated guessing or farming remains possible. Do not enable payouts until abuse limits, the reward ledger and the family access model are reviewed.
 
-Parent authentication currently depends on trusted identity headers supplied by the Sites hosting platform. A different host must replace this with verified authentication and must not trust identity headers supplied directly by clients. A child using an already authenticated parent session can inherit its access.
+Parent settings require the configured ChatGPT parent identity plus a separate high-entropy access code. A parent unlock lasts ten minutes and the game route locks it. The parent sets six-digit PINs for Hugo and Iggy in `/parent`. Child sessions are HTTP-only cookies, expire after twelve hours, and are invalidated immediately when a PIN is changed. Five failed PIN attempts lock that child for ten minutes. Do not commit access codes or the HMAC secret. A different host must replace the Sites-supplied identity headers with verified authentication.
 
 This repository contains source only, not production scores, wallet proofs or secrets. Publishing commits here does not automatically deploy the existing site.
 
@@ -84,4 +84,4 @@ Use Node.js 22.13+ for the included SQLite-backed regression check:
 npm test
 ```
 
-The checks cover issued questions, arithmetic, replayed answers, forged browser scores, expiry, score aggregation and parent access. They do not establish independent child/parent authentication or payout safety.
+The checks cover issued questions, arithmetic, replayed answers, forged browser scores, expiry, score aggregation, parent step-up, child PINs, player-bound rounds and PIN rotation. They do not establish a child’s real-world identity or payout safety.

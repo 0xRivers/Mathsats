@@ -1,0 +1,1 @@
+CREATE TABLE child_credentials (player TEXT PRIMARY KEY NOT NULL CHECK(player IN ('hugo','iggy')), salt TEXT NOT NULL, pin_hash TEXT NOT NULL, failed_attempts INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0);
