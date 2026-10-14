@@ -1,0 +1,6 @@
+{
+  "appId": "xyz.teamtoxic.numbers",
+  "appName": "Number Quest",
+  "webDir": "dist",
+  "server": { "androidScheme": "https" }
+}

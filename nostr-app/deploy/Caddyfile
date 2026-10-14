@@ -1,0 +1,4 @@
+api.teamtoxic.xyz {
+  encode zstd gzip
+  reverse_proxy api:8787
+}

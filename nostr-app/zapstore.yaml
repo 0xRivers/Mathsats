@@ -1,0 +1,18 @@
+repository: https://github.com/0xRivers/Mathsats
+pubkey: npub1g5rwqnjtwpuuuplr36v82eu2sxkn8fzkc6tdwz8036dzmrqkhgzqm6qq0t
+name: Number Quest
+summary: Family maths games with parent Nostr sign-in
+description: |
+  Number Quest is a family maths game. A parent signs in with Nostr and adds
+  profiles for children of different ages and skill levels. Games have 21
+  questions and one point for each correct answer, verified by the server.
+  The PWA is hosted at numbers.teamtoxic.xyz. Parent-managed rewards are disabled
+  until the funding and withdrawal flow is implemented and reviewed.
+website: https://numbers.teamtoxic.xyz
+tags:
+  - education
+  - nostr
+supported_nips:
+  - "07"
+  - "46"
+  - "98"

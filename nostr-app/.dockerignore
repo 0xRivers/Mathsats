@@ -1,0 +1,10 @@
+node_modules
+dist
+android
+.git
+.env
+*.db*
+*.jks
+*.keystore
+tests
+web
