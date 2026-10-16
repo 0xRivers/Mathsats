@@ -1,6 +1,7 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46';
 import { SimplePool } from 'nostr-tools/pool';
+import { signWithNsec } from './local-signer.js';
 
 const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
@@ -97,6 +98,20 @@ $('extension').addEventListener('click', async () => {
     if (!window.nostr?.signEvent) throw Error('No browser signer found. Use Amber or a NIP-07 extension.');
     await signIn(window.nostr);
   } catch (error) { setStatus('login-status', error.message, true); }
+});
+$('nsec-login').addEventListener('click', async () => {
+  const input = $('nsec-key'), button = $('nsec-login');
+  let nsec = input.value.trim();
+  input.value = '';
+  button.disabled = true;
+  try {
+    if (!nsec) throw Error('Enter your nsec to sign in.');
+    await signIn({ signEvent: unsigned => {
+      try { return signWithNsec(nsec, unsigned); }
+      finally { nsec = ''; }
+    } });
+  } catch (error) { setStatus('login-status', error.message, true); }
+  finally { nsec = ''; input.value = ''; button.disabled = false; }
 });
 $('bunker-toggle').addEventListener('click', () => $('bunker-box').classList.toggle('hidden'));
 $('bunker-connect').addEventListener('click', async () => {

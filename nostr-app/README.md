@@ -5,13 +5,15 @@ This directory is the new deployment target. The existing Number Quest Site and 
 ## What works
 
 - Installable PWA shell and responsive 21-question maths games. The shell works offline; questions and scores need the API.
-- Any adult can sign in through a NIP-07 browser signer or NIP-46 bunker / Amber. The server issues a 12-hour device session tied to that signer; each account sees only its own child profiles and scores. Children select their profiles and do not need signers.
+- Any adult can sign in through a NIP-07 browser signer, NIP-46 bunker / Amber, or an optional direct nsec entry. The server issues a 12-hour device session tied to that signer; each account sees only its own child profiles and scores. Children select their profiles and do not need signers.
 - The parent can add, edit and archive child profiles. Each has an age (4–17), skill level and operation. Age selects a base number range; starting out lowers it one band and confident raises it one band. The parent can update the profile as the child progresses.
 - NIP-98 signed parent sign-in with one-use request events, server-issued questions, one-shot answer checking (one point for each correct first answer) and a per-child SQLite score ledger.
 - Optional signed score receipts published by the score authority to configured relays, without child identities. Relay outages do not erase scores because SQLite is authoritative.
 - Capacitor config and Zapstore metadata for an Android APK build.
 
 Cashu payouts are **disabled**. Never put Cashu proofs or private learning history in relay events. A parent session on a shared device can access every child profile; sign out when the device is not in the family's control.
+
+Direct nsec sign-in signs only the NIP-98 login event in the browser; the key is not sent to the API, saved in local storage, or included in the signed event. The input is cleared immediately and the decoded key bytes are cleared after signing, but browser memory cannot be guaranteed to erase a JavaScript string. Use this option only on a trusted device and trusted site; an extension or Amber keeps the nsec out of page code.
 
 ## Local setup
 

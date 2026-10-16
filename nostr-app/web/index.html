@@ -10,10 +10,11 @@
 </style></head><body>
 <header><div class="brand">Number <span>Quest</span></div><div id="identity" class="identity">Parent sign-in</div></header>
 <main><div class="intro"><div><h1>Maths is an adventure.</h1><p>21 questions in every game. One point for every correct answer.</p></div></div>
-<section id="login" class="card"><h2>Parent sign-in</h2><p class="muted">Connect your Nostr signer once on this device. Children then choose their profiles to play. Never enter an nsec here.</p><div class="stack">
+<section id="login" class="card"><h2>Parent sign-in</h2><p class="muted">Sign in once on this device. Children then choose their profiles to play.</p><div class="stack">
 <button class="button" id="extension">Connect browser signer</button>
 <div class="row"><button class="button secondary" id="amber">Connect Amber</button><button class="button secondary" id="bunker-toggle">I have a bunker link</button></div>
 <div id="bunker-box" class="hidden"><label>Bunker connection URL<input id="bunker-url" autocomplete="off" placeholder="bunker://…"></label><button id="bunker-connect" class="button">Connect</button></div>
+<details class="settings" id="nsec-box"><summary>Use an nsec directly</summary><div class="stack"><p class="note">Use only on a device and website you trust. This page handles your secret key locally; a browser extension or Amber keeps it out of the page. The nsec is cleared from this input after signing.</p><label for="nsec-key">Nostr secret key</label><input id="nsec-key" type="password" placeholder="nsec1…" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button id="nsec-login" type="button" class="button secondary">Sign in with nsec</button></div></details>
 <div id="connect-box" class="hidden"><p>Open this link in Amber to approve Number Quest:</p><a id="connect-link" href="#">Open Amber</a><p><code id="connect-uri"></code></p><button id="copy" class="button secondary">Copy link</button></div>
 <p id="login-status" class="status" role="status" aria-live="polite"></p></div></section>
 <div id="game" class="grid hidden"><div><section class="card"><div class="row" style="justify-content:space-between;align-items:center"><h2 id="heading">Choose a player</h2><button id="logout" class="button secondary">Parent sign-out</button></div>
