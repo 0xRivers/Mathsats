@@ -7,6 +7,7 @@ const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
 const relays = ['wss://relay.damus.io', 'wss://relay.primal.net'];
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
+let answerTimer = null;
 const setStatus = (id, message, error = false) => { $(id).textContent = message; $(id).className = error ? 'status error' : 'status'; };
 const bytes = data => [...new Uint8Array(data)].map(n => n.toString(16).padStart(2, '0')).join('');
 const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
@@ -31,18 +32,32 @@ async function signIn(signer) {
 
 async function showFamily(parent) {
   $('identity').textContent = 'Parent · ' + short(parent);
-  $('login').classList.add('hidden'); $('game').classList.remove('hidden');
+  $('login').classList.add('hidden'); $('parent-tools').classList.remove('hidden');
+  $('signin-hint').classList.add('hidden'); $('game').classList.remove('hidden'); $('menu').open = false;
   await refreshChildren();
+}
+
+function playerColor(child) {
+  const index = Number.isSafeInteger(child.colorIndex) && child.colorIndex >= 0 ? child.colorIndex : 0;
+  const hue = Math.round((215 + index * 137.508) % 360);
+  return { accent: `hsl(${hue} 72% 34%)`, tint: `hsl(${hue} 90% 96%)` };
+}
+
+function applyPlayerColor(element, child) {
+  const { accent, tint } = playerColor(child);
+  element.style.setProperty('--player-accent', accent);
+  element.style.setProperty('--player-tint', tint);
 }
 
 async function refreshChildren() {
   children = (await request('/api/children')).children;
   const list = $('profiles'); list.replaceChildren();
   if (!children.length) {
-    const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No players yet. Open the parent section below to add a child.'; list.append(p); $('settings').open = true;
+    const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No players yet. Add a child in the menu.'; list.append(p); $('menu').open = true; $('settings').open = true;
   }
   for (const child of children) {
     const row = document.createElement('div'); row.className = 'profile';
+    applyPlayerColor(row, child);
     const info = document.createElement('div'), title = document.createElement('strong'), details = document.createElement('small');
     title.textContent = child.name;
     details.textContent = `Age ${child.age} · ${child.skill} · ${child.operation} · numbers to ${child.limit} · ${child.points} points`;
@@ -60,6 +75,7 @@ async function refreshChildren() {
 }
 
 function showScore(child) {
+  applyPlayerColor($('game'), child);
   $('score-name').textContent = child.name + '’s score';
   $('total').textContent = child.points;
   $('games').textContent = `${child.games} games finished`;
@@ -70,7 +86,7 @@ function editChild(child) {
   $('child-name').value = child.name; $('child-age').value = child.age;
   $('child-skill').value = child.skill; $('child-operation').value = child.operation;
   $('child-save').textContent = 'Save changes'; $('child-cancel').classList.remove('hidden');
-  $('settings').open = true; $('child-name').focus();
+  $('menu').open = true; $('settings').open = true; $('child-name').focus();
 }
 function cancelEdit() {
   editing = null; $('child-form').reset(); $('child-save').textContent = 'Add child'; $('child-cancel').classList.add('hidden');
@@ -138,10 +154,13 @@ $('amber').addEventListener('click', async () => {
 });
 $('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('connect-uri').textContent); setStatus('login-status', 'Connection link copied.'); } catch { setStatus('login-status', 'Select the link to copy it.', true); } });
 $('logout').addEventListener('click', async () => {
+  clearTimeout(answerTimer); answerTimer = null; $('wrong-answer').classList.add('hidden');
   try { await request('/api/logout', 'POST'); } catch {}
   try { await bunker?.close(); } catch {} pool?.close(relays);
   bunker = pool = current = activeChild = null; children = [];
-  $('identity').textContent = 'Parent sign-in'; $('login').classList.remove('hidden'); $('game').classList.add('hidden');
+  $('identity').textContent = 'Parent sign-in'; $('login').classList.remove('hidden'); $('parent-tools').classList.add('hidden');
+  $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
+  $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');
   $('playing').classList.add('hidden'); $('setup').classList.remove('hidden');
 });
 
@@ -153,6 +172,7 @@ function showQuestion(question) {
   $('feedback').textContent = ''; $('answer').focus();
 }
 async function startRound(child) {
+  clearTimeout(answerTimer); answerTimer = null; $('wrong-answer').classList.add('hidden');
   setStatus('game-status', 'Starting…');
   try {
     const q = await request('/api/round', 'POST', { childId: child.id });
@@ -168,11 +188,17 @@ $('form').addEventListener('submit', async event => {
   $('submit').disabled = true; $('answer').disabled = true;
   try {
     const data = await request('/api/answer', 'POST', { roundId: current.roundId, number: current.number, answer: Number(raw) });
-    $('feedback').className = data.correct ? 'status success' : 'status error';
-    $('feedback').textContent = data.correct ? 'That’s right! +1 point ★' : `Good try! The answer is ${data.answer}.`;
+    $('feedback').className = 'status success';
+    $('feedback').textContent = data.correct ? 'That’s right! +1 point ★' : '';
     current = null;
     if (data.correct) $('total').textContent = Number($('total').textContent) + 1;
-    setTimeout(async () => {
+    else {
+      $('correct-number').textContent = String(data.answer);
+      $('wrong-answer').classList.remove('hidden');
+    }
+    answerTimer = setTimeout(async () => {
+      answerTimer = null;
+      $('wrong-answer').classList.add('hidden');
       if (data.complete) {
         $('playing').classList.add('hidden'); $('complete').classList.remove('hidden');
         $('summary').textContent = `${activeChild.name} earned ${data.points} of 21 points. The verified score has been saved.`;

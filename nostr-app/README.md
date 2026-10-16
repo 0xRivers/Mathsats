@@ -7,6 +7,7 @@ This directory is the new deployment target. The existing Number Quest Site and 
 - Installable PWA shell and responsive 21-question maths games. The shell works offline; questions and scores need the API.
 - Any adult can sign in through a NIP-07 browser signer, NIP-46 bunker / Amber, or an optional direct nsec entry. The server issues a 12-hour device session tied to that signer; each account sees only its own child profiles and scores. Children select their profiles and do not need signers.
 - The parent can add, edit and archive child profiles. Each has an age (4–17), skill level and operation. Age selects a base number range; starting out lowers it one band and confident raises it one band. The parent can update the profile as the child progresses.
+- Parent sign-in and child setup are in the menu. Each child keeps a distinct colour on their profile, game and score card, including after edits or restarts. A wrong answer briefly fills the screen in red with the correct number before the next question.
 - NIP-98 signed parent sign-in with one-use request events, server-issued questions, one-shot answer checking (one point for each correct first answer) and a per-child SQLite score ledger.
 - Optional signed score receipts published by the score authority to configured relays, without child identities. Relay outages do not erase scores because SQLite is authoritative.
 - Capacitor config and Zapstore metadata for an Android APK build.

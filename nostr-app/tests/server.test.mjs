@@ -51,10 +51,14 @@ test('two parents stay isolated, legacy scores migrate, and a child plays 21 ver
   const legacy = (await (await api('/api/children', 'GET', undefined, cookie)).json()).children;
   assert.equal(legacy.length, 1);
   assert.equal(legacy[0].points, 5);
+  assert.equal(legacy[0].colorIndex, 0);
   const created = await api('/api/children', 'POST', { name: 'Ada', age: 7, skill: 'practising', operation: 'mixed' }, cookie);
   assert.equal(created.status, 200);
   const child = (await created.json()).children[0];
   assert.equal(child.limit, 20);
+  assert.equal(child.colorIndex, 1);
+  const updated = await api('/api/children', 'POST', { id: child.id, name: 'Ada', age: 8, skill: 'practising', operation: 'mixed' }, cookie);
+  assert.equal((await updated.json()).children[0].colorIndex, 1);
   const started = await api('/api/round', 'POST', { childId: child.id }, cookie);
   let question = await started.json();
   assert.equal(question.total, 21);
@@ -69,7 +73,9 @@ test('two parents stay isolated, legacy scores migrate, and a child plays 21 ver
   assert.equal((await api('/api/round', 'POST', { childId: child.id }, otherCookie)).status, 404);
   assert.equal((await api('/api/answer', 'POST', { roundId: question.roundId, number: 1, answer: 1 }, otherCookie)).status, 404);
   const otherCreated = await api('/api/children', 'POST', { name: 'Ben', age: 5, skill: 'beginner', operation: 'add' }, otherCookie);
-  assert.equal((await otherCreated.json()).children.length, 1);
+  const otherChildren = (await otherCreated.json()).children;
+  assert.equal(otherChildren.length, 1);
+  assert.equal(otherChildren[0].colorIndex, 0);
   assert.equal((await (await api('/api/children', 'GET', undefined, cookie)).json()).children.length, 2);
   for (let number = 1; number <= 21; number++) {
     const answer = number === 1 ? 999 : question.symbol === '+' ? question.a + question.b : question.symbol === '−' ? question.a - question.b : question.symbol === '×' ? question.a * question.b : question.a / question.b;

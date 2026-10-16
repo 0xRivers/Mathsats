@@ -22,7 +22,7 @@ const db = new DatabaseSync(process.env.DB_PATH || './numbers.db');
 db.exec(`PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS auth_events (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS parent_sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, parent_pubkey TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS children (id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL, skill TEXT NOT NULL, operation TEXT NOT NULL, archived_at INTEGER, owner_pubkey TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS children (id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL, skill TEXT NOT NULL, operation TEXT NOT NULL, archived_at INTEGER, owner_pubkey TEXT NOT NULL, color_index INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS child_rounds (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, data TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS child_results (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, points INTEGER NOT NULL, completed_at INTEGER NOT NULL, receipt TEXT);
 CREATE INDEX IF NOT EXISTS child_results_profile ON child_results(child_id);`);
@@ -39,6 +39,16 @@ try {
     if (legacyParent) db.prepare('UPDATE children SET owner_pubkey = ? WHERE owner_pubkey IS NULL').run(legacyParent);
   }
   if (db.prepare('SELECT 1 FROM children WHERE owner_pubkey IS NULL LIMIT 1').get()) throw Error('Child profile is missing its owner');
+  if (!db.prepare('PRAGMA table_info(children)').all().some(c => c.name === 'color_index')) {
+    db.exec('ALTER TABLE children ADD COLUMN color_index INTEGER');
+    const nextByOwner = new Map();
+    const setColor = db.prepare('UPDATE children SET color_index = ? WHERE id = ?');
+    for (const child of db.prepare('SELECT id, owner_pubkey FROM children ORDER BY rowid').all()) {
+      const next = nextByOwner.get(child.owner_pubkey) || 0;
+      setColor.run(next, child.id);
+      nextByOwner.set(child.owner_pubkey, next + 1);
+    }
+  }
   db.exec('CREATE INDEX IF NOT EXISTS children_owner ON children(owner_pubkey)');
   db.exec('COMMIT');
 } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -51,7 +61,7 @@ const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').
 const session = req => { const token = cookies(req).ms_session; return /^[a-f0-9]{64}$/.test(token || '') ? db.prepare('SELECT parent_pubkey FROM parent_sessions WHERE token_hash = ? AND expires_at > ?').get(sha256(token), now())?.parent_pubkey : null; };
 const cookie = (value, age) => `ms_session=${value}; Path=/api; HttpOnly; SameSite=${origin.startsWith('https:') ? 'None; Secure' : 'Lax'}; Max-Age=${age}`;
 const load = id => { const row = db.prepare('SELECT data FROM child_rounds WHERE id = ?').get(id); return row && JSON.parse(row.data); };
-const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
+const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,c.color_index AS colorIndex,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
   FROM children c LEFT JOIN child_results r ON r.child_id=c.id WHERE c.archived_at IS NULL AND c.owner_pubkey = ? GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all(owner)
   .map(c => ({ ...c, limit: difficulty(c) }));
 
@@ -102,7 +112,8 @@ const server = createServer(async (req, res) => {
         if (!result.changes) return fail(res, 404, 'Child not found');
       } else {
         if (profiles(parent).length >= 100) return fail(res, 400, 'Profile limit reached');
-        db.prepare('INSERT INTO children (id,name,age,skill,operation,owner_pubkey) VALUES (?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, parent);
+        const nextColor = db.prepare('SELECT COALESCE(MAX(color_index), -1) + 1 AS next FROM children WHERE owner_pubkey = ?').get(parent).next;
+        db.prepare('INSERT INTO children (id,name,age,skill,operation,owner_pubkey,color_index) VALUES (?,?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, parent, nextColor);
       }
       return json(res, 200, { children: profiles(parent) });
     }
