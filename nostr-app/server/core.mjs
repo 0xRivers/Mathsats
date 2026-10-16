@@ -8,9 +8,9 @@ const pick = (n) => 1 + Math.floor(Math.random() * n);
 export function makeProblem(operation, limit) {
   if (!['add', 'subtract', 'multiply', 'divide'].includes(operation) || ![10, 20, 50, 100].includes(limit)) throw Error('Invalid settings');
   if (operation === 'add') { const a = pick(limit - 1), b = pick(limit - a); return { a, b, answer: a + b, symbol: '+' }; }
-  if (operation === 'subtract') { const a = pick(limit), b = pick(a); return { a, b, answer: a - b, symbol: '−' }; }
+  if (operation === 'subtract') { const a = 1 + pick(limit - 1), b = pick(a - 1); return { a, b, answer: a - b, symbol: '−' }; }
   const pairs = [];
-  for (let a = 1; a <= 10; a++) for (let b = 1; b <= 10; b++) if (a * b <= limit) pairs.push([a, b]);
+  for (let a = 1; a <= limit; a++) for (let b = 1; b <= Math.floor(limit / a); b++) pairs.push([a, b]);
   const [a, b] = pairs[Math.floor(Math.random() * pairs.length)];
   return operation === 'multiply' ? { a, b, answer: a * b, symbol: '×' } : { a: a * b, b: a, answer: b, symbol: '÷' };
 }
@@ -21,7 +21,9 @@ export function validateChild(input) {
   if (!Number.isInteger(input.age) || input.age < 4 || input.age > 17) throw Error('Choose an age from 4 to 17');
   if (!['beginner', 'practising', 'confident'].includes(input.skill)) throw Error('Choose a skill level');
   if (!['add', 'subtract', 'multiply', 'divide', 'mixed'].includes(input.operation)) throw Error('Choose an operation');
-  return { name, age: input.age, skill: input.skill, operation: input.operation };
+  const rangeLimit = input.rangeLimit ?? input.range_limit ?? difficulty(input);
+  if (![10, 20, 50, 100].includes(rangeLimit)) throw Error('Choose a number range');
+  return { name, age: input.age, skill: input.skill, operation: input.operation, rangeLimit };
 }
 
 export function difficulty(child) {
@@ -34,7 +36,7 @@ export function difficulty(child) {
 export function makeRound(child) {
   const profile = validateChild(child);
   const operations = profile.operation === 'mixed' ? ['add', 'subtract', 'multiply', 'divide'] : [profile.operation];
-  const limit = difficulty(profile);
+  const limit = profile.rangeLimit;
   const questions = Array.from({ length: 21 }, (_, i) => makeProblem(operations[i % operations.length], limit));
   return { id: randomUUID(), childId: child.id, questions, index: 0, points: 0, createdAt: now(), expiresAt: now() + 60 * 60 };
 }

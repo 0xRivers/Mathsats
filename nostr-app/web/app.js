@@ -8,10 +8,12 @@ const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhos
 const relays = ['wss://relay.damus.io', 'wss://relay.primal.net'];
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
 let answerTimer = null;
+let roundToken = 0;
 const setStatus = (id, message, error = false) => { $(id).textContent = message; $(id).className = error ? 'status error' : 'status'; };
 const bytes = data => [...new Uint8Array(data)].map(n => n.toString(16).padStart(2, '0')).join('');
 const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 const short = key => key.slice(0, 12) + '…' + key.slice(-7);
+const operationNames = { add: 'Addition', subtract: 'Subtraction', multiply: 'Multiplication', divide: 'Division', mixed: 'Mixed' };
 $('app-version').textContent = `Version ${__APP_VERSION__}`;
 
 async function request(path, method = 'GET', value) {
@@ -52,40 +54,51 @@ function applyPlayerColor(element, child) {
 
 async function refreshChildren() {
   children = (await request('/api/children')).children;
-  const list = $('profiles'); list.replaceChildren();
+  const previous = activeChild?.id;
+  activeChild = children.find(c => c.id === previous) || children[0] || null;
+  const list = $('players-menu'); list.replaceChildren();
   if (!children.length) {
-    const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No players yet. Add a child in the menu.'; list.append(p); $('menu').open = true; $('settings').open = true;
+    const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Add a child below to begin.'; list.append(p); $('menu').open = true; $('settings').open = true;
   }
   for (const child of children) {
-    const row = document.createElement('div'); row.className = 'profile';
+    const row = document.createElement('div'); row.className = 'menu-player-row';
     applyPlayerColor(row, child);
-    const info = document.createElement('div'), title = document.createElement('strong'), details = document.createElement('small');
-    title.textContent = child.name;
-    details.textContent = `Age ${child.age} · ${child.skill} · ${child.operation} · numbers to ${child.limit} · ${child.points} points`;
-    info.append(title, details);
-    const actions = document.createElement('div'); actions.className = 'row';
-    const play = document.createElement('button'); play.className = 'button'; play.textContent = 'Play 21'; play.addEventListener('click', () => startRound(child));
+    const switcher = document.createElement('button'); switcher.className = 'menu-player'; switcher.type = 'button';
+    switcher.dataset.childId = child.id;
+    switcher.setAttribute('aria-current', String(child.id === activeChild?.id));
+    switcher.append(document.createTextNode(child.name));
+    const points = document.createElement('span'); points.textContent = `${child.points} total points`; switcher.append(points);
+    switcher.addEventListener('click', () => selectChild(child));
+    const actions = document.createElement('div'); actions.className = 'menu-actions';
     const edit = document.createElement('button'); edit.className = 'button secondary'; edit.textContent = 'Edit'; edit.addEventListener('click', () => editChild(child));
     const archive = document.createElement('button'); archive.className = 'button secondary'; archive.textContent = 'Remove'; archive.addEventListener('click', () => archiveChild(child));
-    actions.append(play, edit, archive); row.append(info, actions); list.append(row);
+    actions.append(edit, archive); row.append(switcher, actions); list.append(row);
   }
-  if (activeChild) {
-    const child = children.find(c => c.id === activeChild.id);
-    if (child) { activeChild = child; showScore(child); }
+  showSelected();
+}
+
+function showSelected() {
+  $('start').disabled = !activeChild;
+  $('selected-name').textContent = activeChild?.name || 'Choose a player';
+  $('selected-details').textContent = activeChild ? `${operationNames[activeChild.operation]} · 1–${activeChild.limit} · ${activeChild.points} total points` : 'Open the menu to add a child.';
+  if (activeChild) { applyPlayerColor($('game'), activeChild); applyPlayerColor($('selected-player'), activeChild); }
+  for (const button of $('players-menu').querySelectorAll('.menu-player')) {
+    button.setAttribute('aria-current', String(button.dataset.childId === activeChild?.id));
   }
 }
 
-function showScore(child) {
-  applyPlayerColor($('game'), child);
-  $('score-name').textContent = child.name + '’s score';
-  $('total').textContent = child.points;
-  $('games').textContent = `${child.games} games finished`;
+function selectChild(child) {
+  roundToken++; clearTimeout(answerTimer); answerTimer = null; current = null;
+  $('wrong-answer').classList.add('hidden'); document.body.classList.remove('play-mode');
+  $('playing').classList.add('hidden'); $('complete').classList.add('hidden'); $('setup').classList.remove('hidden');
+  activeChild = child; showSelected(); $('menu').open = false;
 }
 
 function editChild(child) {
   editing = child.id;
   $('child-name').value = child.name; $('child-age').value = child.age;
   $('child-skill').value = child.skill; $('child-operation').value = child.operation;
+  $('child-range').value = String(child.limit);
   $('child-save').textContent = 'Save changes'; $('child-cancel').classList.remove('hidden');
   $('menu').open = true; $('settings').open = true; $('child-name').focus();
 }
@@ -97,7 +110,7 @@ $('child-cancel').addEventListener('click', cancelEdit);
 $('child-form').addEventListener('submit', async event => {
   event.preventDefault(); $('child-save').disabled = true;
   try {
-    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value };
+    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value, rangeLimit: Number($('child-range').value) };
     if (editing) value.id = editing;
     await request('/api/children', 'POST', value);
     cancelEdit(); await refreshChildren(); setStatus('child-status', 'Saved.');
@@ -106,7 +119,7 @@ $('child-form').addEventListener('submit', async event => {
 });
 async function archiveChild(child) {
   if (!confirm(`Remove ${child.name} from the player list? Past scores remain saved.`)) return;
-  try { await request('/api/children/archive', 'POST', { id: child.id }); if (activeChild?.id === child.id) activeChild = null; await refreshChildren(); }
+  try { await request('/api/children/archive', 'POST', { id: child.id }); if (activeChild?.id === child.id) selectChild(null); await refreshChildren(); }
   catch (error) { setStatus('child-status', error.message, true); }
 }
 
@@ -155,6 +168,7 @@ $('amber').addEventListener('click', async () => {
 });
 $('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('connect-uri').textContent); setStatus('login-status', 'Connection link copied.'); } catch { setStatus('login-status', 'Select the link to copy it.', true); } });
 $('logout').addEventListener('click', async () => {
+  roundToken++; document.body.classList.remove('play-mode');
   clearTimeout(answerTimer); answerTimer = null; $('wrong-answer').classList.add('hidden');
   try { await request('/api/logout', 'POST'); } catch {}
   try { await bunker?.close(); } catch {} pool?.close(relays);
@@ -167,37 +181,45 @@ $('logout').addEventListener('click', async () => {
 
 function showQuestion(question) {
   current = question;
-  $('progress').textContent = `Question ${question.number} of ${question.total} · ${question.points} points`;
+  $('progress').textContent = `Question ${question.number} of ${question.total}`;
+  $('round-points').textContent = question.points;
   $('question').textContent = `${question.a} ${question.symbol} ${question.b} = ?`;
   $('answer').value = ''; $('answer').disabled = false; $('submit').disabled = false;
   $('feedback').textContent = ''; $('answer').focus();
 }
 async function startRound(child) {
+  if (!child) return;
+  const token = ++roundToken;
   clearTimeout(answerTimer); answerTimer = null; $('wrong-answer').classList.add('hidden');
   setStatus('game-status', 'Starting…');
   try {
     const q = await request('/api/round', 'POST', { childId: child.id });
-    activeChild = child; showScore(child);
+    if (token !== roundToken) return;
+    activeChild = child; showSelected(); document.body.classList.add('play-mode'); $('menu').open = false;
     $('setup').classList.add('hidden'); $('complete').classList.add('hidden'); $('playing').classList.remove('hidden');
-    $('heading').textContent = child.name + '’s quest'; showQuestion(q);
+    showQuestion(q);
   } catch (error) { setStatus('game-status', error.message, true); }
 }
+$('start').addEventListener('click', () => startRound(activeChild));
 $('form').addEventListener('submit', async event => {
   event.preventDefault(); if (!current) return;
+  const token = roundToken;
   const raw = $('answer').value.trim();
   if (!/^\d{1,4}$/.test(raw)) return setStatus('feedback', 'Enter a whole number.', true);
   $('submit').disabled = true; $('answer').disabled = true;
   try {
     const data = await request('/api/answer', 'POST', { roundId: current.roundId, number: current.number, answer: Number(raw) });
+    if (token !== roundToken) return;
     $('feedback').className = 'status success';
     $('feedback').textContent = data.correct ? 'That’s right! +1 point ★' : '';
     current = null;
-    if (data.correct) $('total').textContent = Number($('total').textContent) + 1;
-    else {
+    $('round-points').textContent = data.points;
+    if (!data.correct) {
       $('correct-number').textContent = String(data.answer);
       $('wrong-answer').classList.remove('hidden');
     }
     answerTimer = setTimeout(async () => {
+      if (token !== roundToken) return;
       answerTimer = null;
       $('wrong-answer').classList.add('hidden');
       if (data.complete) {
@@ -208,6 +230,6 @@ $('form').addEventListener('submit', async event => {
     }, 1000);
   } catch (error) { setStatus('feedback', error.message, true); $('submit').disabled = false; $('answer').disabled = false; }
 });
-$('again').addEventListener('click', () => { $('complete').classList.add('hidden'); $('setup').classList.remove('hidden'); $('heading').textContent = 'Choose a player'; });
+$('again').addEventListener('click', () => { document.body.classList.remove('play-mode'); $('complete').classList.add('hidden'); $('setup').classList.remove('hidden'); });
 request('/api/me').then(me => showFamily(me.parent)).catch(() => {});
 if ('serviceWorker' in navigator && location.protocol === 'https:' && location.hostname !== 'localhost') navigator.serviceWorker.register('/sw.js').catch(() => {});

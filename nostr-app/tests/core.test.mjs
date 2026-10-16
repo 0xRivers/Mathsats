@@ -9,7 +9,7 @@ test('questions stay within the selected range and carry the correct answer', ()
       const q = makeProblem(op, limit);
       const actual = op === 'add' ? q.a + q.b : op === 'subtract' ? q.a - q.b : op === 'multiply' ? q.a * q.b : q.a / q.b;
       assert.equal(q.answer, actual);
-      assert.ok(q.a <= limit && q.b <= limit && q.answer >= 0 && q.answer <= limit);
+      assert.ok(q.a >= 1 && q.a <= limit && q.b >= 1 && q.b <= limit && q.answer >= 1 && q.answer <= limit);
     }
   }
 });
@@ -22,6 +22,13 @@ test('age and skill choose the range, while parent chooses the operation', () =>
   assert.equal(difficulty({ age: 7, skill: 'confident' }), 50);
   assert.throws(() => validateChild({ name: '<script>', age: 7, skill: 'beginner', operation: 'add' }));
   assert.throws(() => validateChild({ name: 'Ada', age: 3, skill: 'beginner', operation: 'add' }));
+  for (const rangeLimit of [10, 20, 50, 100]) {
+    const saved = validateChild({ name: 'Ada', age: 7, skill: 'beginner', operation: 'divide', rangeLimit });
+    assert.equal(saved.rangeLimit, rangeLimit);
+    const round = makeRound({ id: 'ada', ...saved });
+    assert.ok(round.questions.every(q => q.a <= rangeLimit && q.b <= rangeLimit && q.answer <= rangeLimit));
+  }
+  assert.throws(() => validateChild({ name: 'Ada', age: 7, skill: 'beginner', operation: 'add', rangeLimit: 200 }));
 });
 
 test('21 questions, one point per correct first answer, no replay after completion', () => {
