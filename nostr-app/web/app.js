@@ -12,6 +12,7 @@ const setStatus = (id, message, error = false) => { $(id).textContent = message;
 const bytes = data => [...new Uint8Array(data)].map(n => n.toString(16).padStart(2, '0')).join('');
 const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 const short = key => key.slice(0, 12) + '…' + key.slice(-7);
+$('app-version').textContent = `Version ${__APP_VERSION__}`;
 
 async function request(path, method = 'GET', value) {
   const response = await fetch(API + path, { method, headers: method === 'GET' ? {} : { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(value ?? {}), credentials: 'include', cache: 'no-store' });
