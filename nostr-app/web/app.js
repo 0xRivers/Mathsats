@@ -16,6 +16,30 @@ const short = key => key.slice(0, 12) + '…' + key.slice(-7);
 const operationNames = { add: 'Addition', subtract: 'Subtraction', multiply: 'Multiplication', divide: 'Division', mixed: 'Mixed' };
 $('app-version').textContent = `Version ${__APP_VERSION__}`;
 
+function updatePlayViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  document.body.style.setProperty('--play-height', `${Math.round(viewport.height)}px`);
+  document.body.style.setProperty('--play-top', `${Math.round(viewport.offsetTop)}px`);
+}
+window.visualViewport?.addEventListener('resize', updatePlayViewport);
+window.visualViewport?.addEventListener('scroll', updatePlayViewport);
+updatePlayViewport();
+
+function showStars(points) {
+  const earned = Math.max(0, Math.min(21, Number(points) || 0));
+  const score = $('round-score');
+  score.setAttribute('aria-label', `${earned} of 21 stars earned`);
+  score.replaceChildren(...Array.from({ length: 21 }, (_, index) => {
+    const star = document.createElement('span');
+    star.className = index < earned ? 'star earned' : 'star';
+    star.textContent = index < earned ? '★' : '☆';
+    star.setAttribute('aria-hidden', 'true');
+    return star;
+  }));
+}
+showStars(0);
+
 async function request(path, method = 'GET', value) {
   const response = await fetch(API + path, { method, headers: method === 'GET' ? {} : { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(value ?? {}), credentials: 'include', cache: 'no-store' });
   const data = await response.json();
@@ -182,7 +206,7 @@ $('logout').addEventListener('click', async () => {
 function showQuestion(question) {
   current = question;
   $('progress').textContent = `Question ${question.number} of ${question.total}`;
-  $('round-points').textContent = question.points;
+  showStars(question.points);
   $('question').textContent = `${question.a} ${question.symbol} ${question.b} = ?`;
   $('answer').value = ''; $('answer').disabled = false; $('submit').disabled = false;
   $('feedback').textContent = ''; $('answer').focus();
@@ -195,7 +219,7 @@ async function startRound(child) {
   try {
     const q = await request('/api/round', 'POST', { childId: child.id });
     if (token !== roundToken) return;
-    activeChild = child; showSelected(); document.body.classList.add('play-mode'); $('menu').open = false;
+    activeChild = child; showSelected(); updatePlayViewport(); document.body.classList.add('play-mode'); $('menu').open = false;
     $('setup').classList.add('hidden'); $('complete').classList.add('hidden'); $('playing').classList.remove('hidden');
     showQuestion(q);
   } catch (error) { setStatus('game-status', error.message, true); }
@@ -213,7 +237,7 @@ $('form').addEventListener('submit', async event => {
     $('feedback').className = 'status success';
     $('feedback').textContent = data.correct ? 'That’s right! +1 point ★' : '';
     current = null;
-    $('round-points').textContent = data.points;
+    showStars(data.points);
     if (!data.correct) {
       $('correct-number').textContent = String(data.answer);
       $('wrong-answer').classList.remove('hidden');
