@@ -40,6 +40,35 @@ function showStars(points) {
 }
 showStars(0);
 
+let audioContext = null;
+function unlockAudio() {
+  const Context = window.AudioContext || window.webkitAudioContext;
+  if (!Context) return;
+  try {
+    audioContext ||= new Context();
+    if (audioContext.state === 'suspended') void audioContext.resume().catch(() => {});
+  } catch { /* The game still works when audio is unavailable. */ }
+}
+function playAnswerSound(correct) {
+  if (!audioContext || audioContext.state !== 'running' || document.hidden) return;
+  const start = audioContext.currentTime;
+  const notes = correct ? [523.25, 659.25, 783.99] : [220, 155];
+  notes.forEach((frequency, index) => {
+    const at = start + index * (correct ? 0.105 : 0.14);
+    const end = at + (correct ? 0.16 : 0.17);
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = correct ? 'sine' : 'sawtooth';
+    oscillator.frequency.setValueAtTime(frequency, at);
+    gain.gain.setValueAtTime(0.001, at);
+    gain.gain.linearRampToValueAtTime(correct ? 0.085 : 0.045, at + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.001, end);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(at);
+    oscillator.stop(end);
+  });
+}
+
 async function request(path, method = 'GET', value) {
   const response = await fetch(API + path, { method, headers: method === 'GET' ? {} : { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify(value ?? {}), credentials: 'include', cache: 'no-store' });
   const data = await response.json();
@@ -230,10 +259,12 @@ $('form').addEventListener('submit', async event => {
   const token = roundToken;
   const raw = $('answer').value.trim();
   if (!/^\d{1,4}$/.test(raw)) return setStatus('feedback', 'Enter a whole number.', true);
+  unlockAudio();
   $('submit').disabled = true; $('answer').disabled = true;
   try {
     const data = await request('/api/answer', 'POST', { roundId: current.roundId, number: current.number, answer: Number(raw) });
     if (token !== roundToken) return;
+    playAnswerSound(data.correct);
     $('feedback').className = 'status success';
     $('feedback').textContent = data.correct ? 'That’s right! +1 point ★' : '';
     current = null;
