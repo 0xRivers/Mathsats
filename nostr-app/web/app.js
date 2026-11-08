@@ -15,6 +15,23 @@ const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextE
 const short = key => key.slice(0, 12) + '…' + key.slice(-7);
 const operationNames = { add: 'Addition', subtract: 'Subtraction', multiply: 'Multiplication', divide: 'Division', mixed: 'Mixed' };
 $('app-version').textContent = `Version ${__APP_VERSION__}`;
+const themeButton = $('theme-toggle');
+let theme = 'night';
+try { theme = localStorage.getItem('mathsats-theme') === 'day' ? 'day' : 'night'; } catch {}
+function setTheme(next) {
+  theme = next;
+  document.documentElement.dataset.theme = next;
+  themeButton.textContent = next === 'night' ? '☀️ Day mode' : '🌙 Night mode';
+  themeButton.setAttribute('aria-label', `Switch to ${next === 'night' ? 'day' : 'night'} mode`);
+  try { localStorage.setItem('mathsats-theme', next); } catch {}
+  if (activeChild) { applyPlayerColor($('game'), activeChild); applyPlayerColor($('selected-player'), activeChild); }
+  for (const row of $('players-menu').querySelectorAll('.menu-player-row')) {
+    const child = children.find(item => item.id === row.querySelector('.menu-player')?.dataset.childId);
+    if (child) applyPlayerColor(row, child);
+  }
+}
+themeButton.addEventListener('click', () => setTheme(theme === 'night' ? 'day' : 'night'));
+setTheme(theme);
 
 function updatePlayViewport() {
   const viewport = window.visualViewport;
@@ -98,7 +115,9 @@ async function showFamily(parent) {
 function playerColor(child) {
   const index = Number.isSafeInteger(child.colorIndex) && child.colorIndex >= 0 ? child.colorIndex : 0;
   const hue = Math.round((215 + index * 137.508) % 360);
-  return { accent: `hsl(${hue} 72% 34%)`, tint: `hsl(${hue} 90% 96%)` };
+  return theme === 'night'
+    ? { accent: `hsl(${hue} 85% 75%)`, tint: `hsl(${hue} 38% 24%)` }
+    : { accent: `hsl(${hue} 72% 34%)`, tint: `hsl(${hue} 90% 96%)` };
 }
 
 function applyPlayerColor(element, child) {

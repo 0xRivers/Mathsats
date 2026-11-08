@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head>
+<html lang="en" data-theme="night"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#254c89"><meta name="description" content="A maths adventure with Nostr sign-in and verified scores">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -20,8 +20,57 @@
 .round-score .star:not(.earned){color:#a8b4c5}
 @media(max-height:520px){.play-mode main{padding:3px 8px}.play-mode #game .card{padding:5px 10px}.play-mode .question{min-height:44px;font-size:clamp(27px,8vh,44px)}.play-mode .round-score{font-size:clamp(18px,5vh,25px)}.play-mode .answer{min-height:38px;padding:2px 8px}.play-mode #submit{min-height:38px;padding:4px 10px}}
 .amber-qr{display:block;max-width:100%;height:auto;margin:12px auto;background:white;border:8px solid white;border-radius:12px}.amber-steps{text-align:center;margin:8px 0}.amber-retry{display:block;margin:0 auto}
+
+/* Gentle evening palette; the switch works before and after parent sign-in. */
+html[data-theme="night"]{color-scheme:dark;--page:#101a30;--surface:#1b2b46;--soft:#263a5b;--ink:#f5f1e8;--muted:#c1d0e3;--edge:#435b79;--action:#a9c7ff;--action-ink:#122448;--sun:#ffd994}
+html[data-theme="day"]{color-scheme:light;--page:#edf2f5;--surface:#fffdf7;--soft:#e4eef3;--ink:#21394d;--muted:#52697c;--edge:#acc5d2;--action:#315f9f;--action-ink:#fff;--sun:#a65521}
+html,body{background:var(--page);color:var(--ink)}
+header{background:var(--surface);color:var(--ink);border-bottom:2px solid var(--edge);display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px}
+.brand{white-space:nowrap}.brand span{color:var(--sun)}
+.identity{color:var(--muted);max-width:min(38vw,240px);text-align:right}
+section.card,.menu-panel{background:var(--surface);color:var(--ink);box-shadow:0 7px 20px #080f2050}
+.menu-panel{border:1px solid var(--edge);display:grid;gap:16px;padding:18px;max-height:min(78dvh,680px);overscroll-behavior:contain}
+.menu-panel .card{box-shadow:none}.menu-panel h2{font-size:20px;line-height:1.25;margin:0 0 12px}
+.menu-panel .settings{margin:0;padding-top:14px;border-color:var(--edge)}
+.menu-panel .settings form{margin-top:14px}
+.menu-panel .menu-switcher{padding-top:14px;border-color:var(--edge)}
+.menu-panel .menu-version{margin:0;border-color:var(--edge)}
+.menu-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--edge)}
+.menu-top strong{font-size:17px}.theme-toggle{min-height:40px;padding:8px 12px;white-space:nowrap}
+.menu>summary{border-color:var(--edge);color:var(--ink)}
+.menu>summary:hover,.menu[open]>summary{background:var(--soft)}
+.muted,.intro p,.profile small,.selected-player small,.menu-version,footer{color:var(--muted)}
+.note,.score{background:var(--soft);color:var(--ink)}
+.signin-hint{border:1px solid var(--edge)}.settings summary{color:var(--action)}
+input,select{background:var(--soft);color:var(--ink);border-color:var(--edge)}
+input::placeholder{color:var(--muted)}
+.button{background:var(--action);color:var(--action-ink);text-decoration:none;display:inline-flex;align-items:center;justify-content:center;text-align:center}
+.button:hover{background:var(--sun);color:#18243b}
+.secondary{background:var(--soft);color:var(--ink);border:1px solid var(--edge)}
+.secondary:hover{background:var(--edge);color:var(--ink)}
+.menu-panel #login{text-align:center}
+.menu-panel #amber-open{width:100%;margin:4px 0 10px}
+.menu-panel #refresh-amber{min-height:40px}
+.menu-panel #logout{width:100%;margin-top:14px}
+.menu-player{min-height:48px}.menu-actions{justify-content:flex-end}
+.menu-actions button{min-width:72px}.menu-player span{white-space:nowrap}
+.question,.score strong,.selected-player strong{color:var(--player-accent,var(--ink))}
+.round-score .star:not(.earned){color:var(--muted)}
+.error{color:#ff9c93}.success{color:#83e7ba}
+html[data-theme="day"] .error{color:#a9362a}
+html[data-theme="day"] .success{color:#16724c}
+.profile .button:not(.secondary){color:var(--action-ink)}
+html[data-theme="night"] .profile .button:not(.secondary){color:#122448}
+@media(max-width:560px){
+  header{grid-template-columns:minmax(0,1fr) auto;gap:4px 12px}
+  .brand{font-size:19px}
+  .identity{grid-column:1;grid-row:2;max-width:100%;text-align:left}
+  .menu{grid-column:2;grid-row:1 / span 2;align-self:center}
+  .menu-panel{right:-10px;width:min(420px,calc(100vw - 20px));padding:16px;max-height:calc(100dvh - 88px)}
+  .menu-player{flex-wrap:wrap}.menu-player span{margin-left:auto}
+}
 </style></head><body>
-<header><div class="brand">Number <span>Quest</span></div><div id="identity" class="identity">Parent sign-in</div><details id="menu" class="menu"><summary aria-label="Open menu" title="Menu">☰</summary><div class="menu-panel">
+<header><div class="brand">Number <span>Quest</span></div><div id="identity" class="identity">Parent sign-in</div><details id="menu" class="menu"><summary aria-label="Open menu" title="Menu">☰</summary><div class="menu-panel"><div class="menu-top"><strong>Family menu</strong><button id="theme-toggle" class="button secondary theme-toggle" type="button">☀️ Day mode</button></div>
 <section id="login" class="card"><h2>Connect with Amber</h2><p class="muted amber-steps">Tap Open Amber on this device, approve both requests, then return here.</p>
 <a id="amber-open" class="button hidden" href="#">Open Amber</a>
 <p id="login-status" class="status amber-steps" role="status" aria-live="polite"></p><button id="refresh-amber" class="button secondary amber-retry" type="button">New code</button></section>
