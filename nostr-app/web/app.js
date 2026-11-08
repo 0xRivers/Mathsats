@@ -122,13 +122,12 @@ async function showFamily(parent) {
 
 function showPinState() {
   const unlocked = pinConfigured && !!parentPin && pinExpires > Date.now();
+  const signedIn = $('login').classList.contains('hidden');
+  $('pin-onboarding').classList.toggle('hidden', !signedIn || pinConfigured);
   $('settings').classList.toggle('hidden', !unlocked);
   $('parent-tools').classList.toggle('settings-unlocked', unlocked);
   if (!unlocked) $('settings').open = false;
-  $('pin-gate').classList.toggle('hidden', unlocked);
-  $('pin-gate-title').textContent = pinConfigured ? 'Parent settings locked' : 'Create a parent PIN';
-  $('pin-submit').textContent = pinConfigured ? 'Unlock settings' : 'Set PIN';
-  $('pin-help').textContent = pinConfigured ? 'Enter your PIN to change player settings.' : 'Choose 4–8 digits to protect player settings.';
+  $('pin-gate').classList.toggle('hidden', unlocked || !pinConfigured);
 }
 $('menu').addEventListener('toggle', () => {
   if ($('menu').open && !$('parent-tools').classList.contains('hidden')) showPinState();
@@ -138,13 +137,27 @@ $('pin-form').addEventListener('submit', async event => {
   const pin = $('pin-input').value;
   $('pin-submit').disabled = true;
   try {
-    await request(pinConfigured ? '/api/parent-pin/check' : '/api/parent-pin/set', 'POST', pinConfigured ? { pin } : { newPin: pin });
-    pinConfigured = true; parentPin = pin; pinExpires = Date.now() + 5 * 60 * 1000;
+    await request('/api/parent-pin/check', 'POST', { pin });
+    parentPin = pin; pinExpires = Date.now() + 5 * 60 * 1000;
     setTimeout(showPinState, 5 * 60 * 1000 + 100);
     $('pin-input').value = ''; setStatus('pin-status', 'Settings unlocked for five minutes.');
     showPinState(); $('settings').open = true;
   } catch (error) { setStatus('pin-status', error.message, true); }
   finally { $('pin-submit').disabled = false; }
+});
+$('pin-create-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const pin = $('pin-create').value, confirm = $('pin-confirm').value;
+  if (pin !== confirm) return setStatus('pin-create-status', 'PINs do not match. Try again.', true);
+  $('pin-create-submit').disabled = true;
+  try {
+    await request('/api/parent-pin/set', 'POST', { newPin: pin });
+    pinConfigured = true; parentPin = pin; pinExpires = Date.now() + 5 * 60 * 1000;
+    $('pin-create-form').reset(); setStatus('pin-status', 'PIN saved. Settings unlocked for five minutes.');
+    setTimeout(showPinState, 5 * 60 * 1000 + 100);
+    showPinState(); $('menu').open = true; $('settings').open = true;
+  } catch (error) { setStatus('pin-create-status', error.message, true); }
+  finally { $('pin-create-submit').disabled = false; }
 });
 
 function playerColor(child) {
@@ -270,6 +283,7 @@ $('logout').addEventListener('click', async () => {
   try { await bunker?.close(); } catch {} pool?.close(relays);
   bunker = pool = current = activeChild = null; children = [];
   parentPin = null; pinExpires = 0; pinConfigured = false;
+  $('pin-onboarding').classList.add('hidden');
   $('identity').textContent = 'Parent sign-in'; $('login').classList.remove('hidden'); $('parent-tools').classList.add('hidden');
   $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
   $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');
