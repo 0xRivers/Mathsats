@@ -1,7 +1,6 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { BunkerSigner, createNostrConnectURI } from 'nostr-tools/nip46';
 import { SimplePool } from 'nostr-tools/pool';
-import QRCode from 'qrcode';
 
 const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
@@ -190,9 +189,10 @@ async function connectAmber() {
     const secret = bytes(crypto.getRandomValues(new Uint8Array(16)));
     const uri = createNostrConnectURI({ clientPubkey: getPublicKey(localSecretKey), relays, secret, perms: ['sign_event:27235'], name: 'Number Quest', url: location.origin });
     const pending = BunkerSigner.fromURI(localSecretKey, uri, { pool, skipSwitchRelays: true }, amberAbort.signal);
-    await QRCode.toCanvas($('amber-qr'), uri, { errorCorrectionLevel: 'M', width: 280, margin: 2 });
     if (attempt !== amberAttempt) return;
-    setStatus('login-status', 'Scan with Amber, then approve the connection and sign-in request. Keep this page open.');
+    $('amber-open').href = uri;
+    $('amber-open').classList.remove('hidden');
+    setStatus('login-status', 'Tap Open Amber, approve both requests, then return here.');
     bunker = await pending;
     if (attempt !== amberAttempt) return;
     await signIn(bunker);
