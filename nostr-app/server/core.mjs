@@ -4,6 +4,7 @@ import { verifyEvent } from 'nostr-tools/pure';
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export const now = () => Math.floor(Date.now() / 1000);
 const pick = (n) => 1 + Math.floor(Math.random() * n);
+export const operations = ['add', 'subtract', 'multiply', 'divide'];
 
 export function makeProblem(operation, limit) {
   if (!['add', 'subtract', 'multiply', 'divide'].includes(operation) || ![10, 20, 50, 100].includes(limit)) throw Error('Invalid settings');
@@ -23,7 +24,15 @@ export function validateChild(input) {
   if (!['add', 'subtract', 'multiply', 'divide', 'mixed'].includes(input.operation)) throw Error('Choose an operation');
   const rangeLimit = input.rangeLimit ?? input.range_limit ?? difficulty(input);
   if (![10, 20, 50, 100].includes(rangeLimit)) throw Error('Choose a number range');
-  return { name, age: input.age, skill: input.skill, operation: input.operation, rangeLimit };
+  let supplied = input.operationRanges ?? input.operation_ranges;
+  if (typeof supplied === 'string') {
+    try { supplied = JSON.parse(supplied); } catch { throw Error('Choose a range for every equation type'); }
+  }
+  if (supplied != null && (typeof supplied !== 'object' || Array.isArray(supplied))) throw Error('Choose a range for every equation type');
+  const operationRanges = Object.fromEntries(operations.map(type => [type, supplied?.[type] ?? rangeLimit]));
+  if (Object.keys(supplied || {}).some(type => !operations.includes(type)) ||
+      Object.values(operationRanges).some(limit => ![10, 20, 50, 100].includes(limit))) throw Error('Choose a range for every equation type');
+  return { name, age: input.age, skill: input.skill, operation: input.operation, rangeLimit, operationRanges };
 }
 
 export function difficulty(child) {
@@ -35,9 +44,11 @@ export function difficulty(child) {
 
 export function makeRound(child) {
   const profile = validateChild(child);
-  const operations = profile.operation === 'mixed' ? ['add', 'subtract', 'multiply', 'divide'] : [profile.operation];
-  const limit = profile.rangeLimit;
-  const questions = Array.from({ length: 21 }, (_, i) => makeProblem(operations[i % operations.length], limit));
+  const roundOperations = profile.operation === 'mixed' ? operations : [profile.operation];
+  const questions = Array.from({ length: 21 }, (_, i) => {
+    const type = roundOperations[i % roundOperations.length];
+    return makeProblem(type, profile.operationRanges[type]);
+  });
   return { id: randomUUID(), childId: child.id, questions, index: 0, points: 0, createdAt: now(), expiresAt: now() + 60 * 60 };
 }
 

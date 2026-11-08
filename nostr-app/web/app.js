@@ -6,6 +6,7 @@ const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
 const relays = ['wss://relay.nip46.com', 'wss://nrs.primal.net'];
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
+let parentPin = null, pinExpires = 0, pinConfigured = false;
 let amberAttempt = 0, amberAbort = null;
 let answerTimer = null;
 let roundToken = 0;
@@ -14,6 +15,11 @@ const bytes = data => [...new Uint8Array(data)].map(n => n.toString(16).padStart
 const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 const short = key => key.slice(0, 12) + '…' + key.slice(-7);
 const operationNames = { add: 'Addition', subtract: 'Subtraction', multiply: 'Multiplication', divide: 'Division', mixed: 'Mixed' };
+const operationSymbols = { add: '+', subtract: '−', multiply: '×', divide: '÷' };
+const operationTypes = ['add', 'subtract', 'multiply', 'divide'];
+const rangesFor = child => child.operationRanges || Object.fromEntries(operationTypes.map(type => [type, child.limit ?? child.rangeLimit ?? 20]));
+const rangeDescription = child => (child.operation === 'mixed' ? operationTypes : [child.operation])
+  .map(type => `${operationSymbols[type]} 1–${rangesFor(child)[type]}`).join(' · ');
 $('app-version').textContent = `Version ${__APP_VERSION__}`;
 const themeButton = $('theme-toggle');
 let theme = 'night';
@@ -109,8 +115,37 @@ async function showFamily(parent) {
   $('identity').textContent = 'Parent · ' + short(parent);
   $('login').classList.add('hidden'); $('parent-tools').classList.remove('hidden');
   $('signin-hint').classList.add('hidden'); $('game').classList.remove('hidden'); $('menu').open = false;
+  pinConfigured = (await request('/api/me')).pinSet;
+  parentPin = null; pinExpires = 0; showPinState();
   await refreshChildren();
 }
+
+function showPinState() {
+  const unlocked = pinConfigured && !!parentPin && pinExpires > Date.now();
+  $('settings').classList.toggle('hidden', !unlocked);
+  $('parent-tools').classList.toggle('settings-unlocked', unlocked);
+  if (!unlocked) $('settings').open = false;
+  $('pin-gate').classList.toggle('hidden', unlocked);
+  $('pin-gate-title').textContent = pinConfigured ? 'Parent settings locked' : 'Create a parent PIN';
+  $('pin-submit').textContent = pinConfigured ? 'Unlock settings' : 'Set PIN';
+  $('pin-help').textContent = pinConfigured ? 'Enter your PIN to change player settings.' : 'Choose 4–8 digits to protect player settings.';
+}
+$('menu').addEventListener('toggle', () => {
+  if ($('menu').open && !$('parent-tools').classList.contains('hidden')) showPinState();
+});
+$('pin-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const pin = $('pin-input').value;
+  $('pin-submit').disabled = true;
+  try {
+    await request(pinConfigured ? '/api/parent-pin/check' : '/api/parent-pin/set', 'POST', pinConfigured ? { pin } : { newPin: pin });
+    pinConfigured = true; parentPin = pin; pinExpires = Date.now() + 5 * 60 * 1000;
+    setTimeout(showPinState, 5 * 60 * 1000 + 100);
+    $('pin-input').value = ''; setStatus('pin-status', 'Settings unlocked for five minutes.');
+    showPinState(); $('settings').open = true;
+  } catch (error) { setStatus('pin-status', error.message, true); }
+  finally { $('pin-submit').disabled = false; }
+});
 
 function playerColor(child) {
   const index = Number.isSafeInteger(child.colorIndex) && child.colorIndex >= 0 ? child.colorIndex : 0;
@@ -154,7 +189,7 @@ async function refreshChildren() {
 function showSelected() {
   $('start').disabled = !activeChild;
   $('selected-name').textContent = activeChild?.name || 'Choose a player';
-  $('selected-details').textContent = activeChild ? `${operationNames[activeChild.operation]} · 1–${activeChild.limit} · ${activeChild.points} total points` : 'Open the menu to add a child.';
+  $('selected-details').textContent = activeChild ? `${operationNames[activeChild.operation]} · ${rangeDescription(activeChild)} · ${activeChild.points} total points` : 'Open the menu to add a child.';
   if (activeChild) { applyPlayerColor($('game'), activeChild); applyPlayerColor($('selected-player'), activeChild); }
   for (const button of $('players-menu').querySelectorAll('.menu-player')) {
     button.setAttribute('aria-current', String(button.dataset.childId === activeChild?.id));
@@ -169,10 +204,11 @@ function selectChild(child) {
 }
 
 function editChild(child) {
+  if (!parentPin || pinExpires <= Date.now()) { showPinState(); $('menu').open = true; return; }
   editing = child.id;
   $('child-name').value = child.name; $('child-age').value = child.age;
   $('child-skill').value = child.skill; $('child-operation').value = child.operation;
-  $('child-range').value = String(child.limit);
+  for (const type of operationTypes) $(`range-${type}`).value = String(rangesFor(child)[type]);
   $('child-save').textContent = 'Save changes'; $('child-cancel').classList.remove('hidden');
   $('menu').open = true; $('settings').open = true; $('child-name').focus();
 }
@@ -184,7 +220,9 @@ $('child-cancel').addEventListener('click', cancelEdit);
 $('child-form').addEventListener('submit', async event => {
   event.preventDefault(); $('child-save').disabled = true;
   try {
-    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value, rangeLimit: Number($('child-range').value) };
+    if (!parentPin || pinExpires <= Date.now()) { showPinState(); throw Error('Unlock parent settings again'); }
+    const operationRanges = Object.fromEntries(operationTypes.map(type => [type, Number($(`range-${type}`).value)]));
+    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value, operationRanges, rangeLimit: operationRanges[$('child-operation').value] ?? operationRanges.add, pin: parentPin };
     if (editing) value.id = editing;
     await request('/api/children', 'POST', value);
     cancelEdit(); await refreshChildren(); setStatus('child-status', 'Saved.');
@@ -192,8 +230,9 @@ $('child-form').addEventListener('submit', async event => {
   finally { $('child-save').disabled = false; }
 });
 async function archiveChild(child) {
+  if (!parentPin || pinExpires <= Date.now()) { showPinState(); setStatus('pin-status', 'Unlock parent settings to remove a player.', true); $('menu').open = true; return; }
   if (!confirm(`Remove ${child.name} from the player list? Past scores remain saved.`)) return;
-  try { await request('/api/children/archive', 'POST', { id: child.id }); if (activeChild?.id === child.id) selectChild(null); await refreshChildren(); }
+  try { await request('/api/children/archive', 'POST', { id: child.id, pin: parentPin }); if (activeChild?.id === child.id) selectChild(null); await refreshChildren(); }
   catch (error) { setStatus('child-status', error.message, true); }
 }
 
@@ -230,6 +269,7 @@ $('logout').addEventListener('click', async () => {
   try { await request('/api/logout', 'POST'); } catch {}
   try { await bunker?.close(); } catch {} pool?.close(relays);
   bunker = pool = current = activeChild = null; children = [];
+  parentPin = null; pinExpires = 0; pinConfigured = false;
   $('identity').textContent = 'Parent sign-in'; $('login').classList.remove('hidden'); $('parent-tools').classList.add('hidden');
   $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
   $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');

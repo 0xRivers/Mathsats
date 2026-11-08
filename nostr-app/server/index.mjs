@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure';
 import { SimplePool, useWebSocketImplementation } from 'nostr-tools/pool';
@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS parent_sessions (token_hash TEXT PRIMARY KEY, expires
 CREATE TABLE IF NOT EXISTS children (id TEXT PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL, skill TEXT NOT NULL, operation TEXT NOT NULL, archived_at INTEGER, owner_pubkey TEXT NOT NULL, color_index INTEGER NOT NULL, range_limit INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS child_rounds (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, data TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS child_results (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, points INTEGER NOT NULL, completed_at INTEGER NOT NULL, receipt TEXT);
+CREATE TABLE IF NOT EXISTS parent_pins (parent_pubkey TEXT PRIMARY KEY, salt TEXT NOT NULL, digest TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS child_results_profile ON child_results(child_id);`);
 db.exec('BEGIN IMMEDIATE');
 try {
@@ -54,6 +55,14 @@ try {
     const setRange = db.prepare('UPDATE children SET range_limit = ? WHERE id = ?');
     for (const child of db.prepare('SELECT id, age, skill FROM children').all()) setRange.run(difficulty(child), child.id);
   }
+  if (!db.prepare('PRAGMA table_info(children)').all().some(c => c.name === 'operation_ranges')) {
+    db.exec('ALTER TABLE children ADD COLUMN operation_ranges TEXT');
+    const setRanges = db.prepare('UPDATE children SET operation_ranges = ? WHERE id = ?');
+    for (const child of db.prepare('SELECT id, range_limit FROM children').all()) {
+      const limit = child.range_limit ?? 20;
+      setRanges.run(JSON.stringify({ add: limit, subtract: limit, multiply: limit, divide: limit }), child.id);
+    }
+  }
   db.exec('CREATE INDEX IF NOT EXISTS children_owner ON children(owner_pubkey)');
   db.exec('COMMIT');
 } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -66,9 +75,25 @@ const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').
 const session = req => { const token = cookies(req).ms_session; return /^[a-f0-9]{64}$/.test(token || '') ? db.prepare('SELECT parent_pubkey FROM parent_sessions WHERE token_hash = ? AND expires_at > ?').get(sha256(token), now())?.parent_pubkey : null; };
 const cookie = (value, age) => `ms_session=${value}; Path=/api; HttpOnly; SameSite=${origin.startsWith('https:') ? 'None; Secure' : 'Lax'}; Max-Age=${age}`;
 const load = id => { const row = db.prepare('SELECT data FROM child_rounds WHERE id = ?').get(id); return row && JSON.parse(row.data); };
-const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,c.color_index AS colorIndex,c.range_limit AS rangeLimit,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
+const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,c.color_index AS colorIndex,c.range_limit AS rangeLimit,c.operation_ranges AS operationRanges,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
   FROM children c LEFT JOIN child_results r ON r.child_id=c.id WHERE c.archived_at IS NULL AND c.owner_pubkey = ? GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all(owner)
-  .map(c => ({ ...c, limit: c.rangeLimit ?? difficulty(c) }));
+  .map(c => ({ ...c, operationRanges: c.operationRanges ? JSON.parse(c.operationRanges) : null, limit: c.rangeLimit ?? difficulty(c) }));
+const pinRow = parent => db.prepare('SELECT * FROM parent_pins WHERE parent_pubkey = ?').get(parent);
+const validPin = pin => typeof pin === 'string' && /^\d{4,8}$/.test(pin);
+const verifyPin = (parent, pin) => {
+  const row = pinRow(parent);
+  if (!row) return { status: 403, error: 'Set a parent PIN first' };
+  if (row.locked_until > now()) return { status: 429, error: 'Too many attempts. Try again in five minutes.' };
+  const computed = validPin(pin) ? scryptSync(pin, Buffer.from(row.salt, 'hex'), 32) : Buffer.alloc(32);
+  const match = timingSafeEqual(computed, Buffer.from(row.digest, 'hex')) && validPin(pin);
+  if (match) {
+    db.prepare('UPDATE parent_pins SET failures=0, locked_until=0 WHERE parent_pubkey=?').run(parent);
+    return null;
+  }
+  const failures = row.failures + 1;
+  db.prepare('UPDATE parent_pins SET failures=?,locked_until=? WHERE parent_pubkey=?').run(failures >= 5 ? 0 : failures, failures >= 5 ? now() + 300 : 0, parent);
+  return { status: 403, error: 'Incorrect parent PIN' };
+};
 
 async function publishReceipt(round) {
   if (!secret) return null;
@@ -106,23 +131,41 @@ const server = createServer(async (req, res) => {
       res.setHeader('set-cookie', cookie('', 0));
       return json(res, 200, { signedOut: true });
     }
-    if (url.pathname === '/api/me' && req.method === 'GET') return json(res, 200, { parent, rewardsEnabled: false, scoreAuthority: secret ? getPublicKey(secret) : null });
+    if (url.pathname === '/api/me' && req.method === 'GET') return json(res, 200, { parent, pinSet: !!pinRow(parent), rewardsEnabled: false, scoreAuthority: secret ? getPublicKey(secret) : null });
     if (url.pathname === '/api/children' && req.method === 'GET') return json(res, 200, { children: profiles(parent) });
     let data;
     try { data = raw ? JSON.parse(raw) : {}; } catch { return fail(res, 400, 'Invalid JSON'); }
+    if (url.pathname === '/api/parent-pin/set' && req.method === 'POST') {
+      if (!validPin(data.newPin)) return fail(res, 400, 'Choose a 4–8 digit PIN');
+      if (pinRow(parent)) {
+        const error = verifyPin(parent, data.pin);
+        if (error) return fail(res, error.status, error.error);
+      }
+      const salt = randomBytes(16);
+      db.prepare('INSERT INTO parent_pins (parent_pubkey,salt,digest) VALUES (?,?,?) ON CONFLICT(parent_pubkey) DO UPDATE SET salt=excluded.salt,digest=excluded.digest,failures=0,locked_until=0').run(parent, salt.toString('hex'), scryptSync(data.newPin, salt, 32).toString('hex'));
+      return json(res, 200, { pinSet: true });
+    }
+    if (url.pathname === '/api/parent-pin/check' && req.method === 'POST') {
+      const error = verifyPin(parent, data.pin);
+      return error ? fail(res, error.status, error.error) : json(res, 200, { unlocked: true });
+    }
     if (url.pathname === '/api/children' && req.method === 'POST') {
+      const pinError = verifyPin(parent, data.pin);
+      if (pinError) return fail(res, pinError.status, pinError.error);
       const child = validateChild(data);
       if (data.id) {
-        const result = db.prepare('UPDATE children SET name=?,age=?,skill=?,operation=?,range_limit=? WHERE id=? AND owner_pubkey=? AND archived_at IS NULL').run(child.name, child.age, child.skill, child.operation, child.rangeLimit, data.id, parent);
+        const result = db.prepare('UPDATE children SET name=?,age=?,skill=?,operation=?,range_limit=?,operation_ranges=? WHERE id=? AND owner_pubkey=? AND archived_at IS NULL').run(child.name, child.age, child.skill, child.operation, child.rangeLimit, JSON.stringify(child.operationRanges), data.id, parent);
         if (!result.changes) return fail(res, 404, 'Child not found');
       } else {
         if (profiles(parent).length >= 100) return fail(res, 400, 'Profile limit reached');
         const nextColor = db.prepare('SELECT COALESCE(MAX(color_index), -1) + 1 AS next FROM children WHERE owner_pubkey = ?').get(parent).next;
-        db.prepare('INSERT INTO children (id,name,age,skill,operation,owner_pubkey,color_index,range_limit) VALUES (?,?,?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, parent, nextColor, child.rangeLimit);
+        db.prepare('INSERT INTO children (id,name,age,skill,operation,owner_pubkey,color_index,range_limit,operation_ranges) VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, parent, nextColor, child.rangeLimit, JSON.stringify(child.operationRanges));
       }
       return json(res, 200, { children: profiles(parent) });
     }
     if (url.pathname === '/api/children/archive' && req.method === 'POST') {
+      const pinError = verifyPin(parent, data.pin);
+      if (pinError) return fail(res, pinError.status, pinError.error);
       if (typeof data.id !== 'string') return fail(res, 400, 'Invalid child');
       const result = db.prepare('UPDATE children SET archived_at=? WHERE id=? AND owner_pubkey=? AND archived_at IS NULL').run(now(), data.id, parent);
       return result.changes ? json(res, 200, { children: profiles(parent) }) : fail(res, 404, 'Child not found');

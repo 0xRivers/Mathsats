@@ -43,6 +43,22 @@ test('21 questions, one point per correct first answer, no replay after completi
   assert.throws(() => scoreAnswer(round, 1));
 });
 
+test('mixed rounds respect a different range for each equation type', () => {
+  const operationRanges = { add: 10, subtract: 20, multiply: 50, divide: 100 };
+  const child = validateChild({ name: 'Ada', age: 8, skill: 'practising', operation: 'mixed', operationRanges });
+  assert.deepEqual(child.operationRanges, operationRanges);
+  const round = makeRound({ id: 'ada', ...child });
+  const limits = [10, 20, 50, 100];
+  const symbols = ['+', '−', '×', '÷'];
+  round.questions.forEach((question, index) => {
+    assert.equal(question.symbol, symbols[index % 4]);
+    assert.ok(question.a <= limits[index % 4]);
+    assert.ok(question.b <= limits[index % 4]);
+    assert.ok(question.answer <= limits[index % 4]);
+  });
+  assert.throws(() => validateChild({ name: 'Ada', age: 8, skill: 'practising', operation: 'mixed', operationRanges: { ...operationRanges, divide: 200 } }));
+});
+
 test('NIP-98 binds method, URL, body, time and signature', () => {
   const key = generateSecretKey();
   const url = 'https://numbers.teamtoxic.xyz/api/round', body = JSON.stringify({ operation: 'add', limit: 10 });
