@@ -1,12 +1,13 @@
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { BunkerSigner, parseBunkerInput, createNostrConnectURI } from 'nostr-tools/nip46';
+import { BunkerSigner, createNostrConnectURI } from 'nostr-tools/nip46';
 import { SimplePool } from 'nostr-tools/pool';
-import { signWithNsec } from './local-signer.js';
+import QRCode from 'qrcode';
 
 const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
-const relays = ['wss://relay.damus.io', 'wss://relay.primal.net'];
+const relays = ['wss://relay.nip46.com', 'wss://nrs.primal.net'];
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
+let amberAttempt = 0, amberAbort = null;
 let answerTimer = null;
 let roundToken = 0;
 const setStatus = (id, message, error = false) => { $(id).textContent = message; $(id).className = error ? 'status error' : 'status'; };
@@ -87,6 +88,8 @@ async function signIn(signer) {
 }
 
 async function showFamily(parent) {
+  amberAttempt++; amberAbort?.abort(); amberAbort = null;
+  if (!bunker) { pool?.close(relays); pool = null; }
   $('identity').textContent = 'Parent · ' + short(parent);
   $('login').classList.add('hidden'); $('parent-tools').classList.remove('hidden');
   $('signin-hint').classList.add('hidden'); $('game').classList.remove('hidden'); $('menu').open = false;
@@ -176,51 +179,33 @@ async function archiveChild(child) {
   catch (error) { setStatus('child-status', error.message, true); }
 }
 
-$('extension').addEventListener('click', async () => {
+async function connectAmber() {
+  const attempt = ++amberAttempt;
+  amberAbort?.abort(); pool?.close(relays);
+  pool = new SimplePool(); bunker = null;
+  amberAbort = new AbortController();
+  setStatus('login-status', 'Preparing Amber connection…');
   try {
-    if (!window.nostr?.signEvent) throw Error('No browser signer found. Use Amber or a NIP-07 extension.');
-    await signIn(window.nostr);
-  } catch (error) { setStatus('login-status', error.message, true); }
-});
-$('nsec-login').addEventListener('click', async () => {
-  const input = $('nsec-key'), button = $('nsec-login');
-  let nsec = input.value.trim();
-  input.value = '';
-  button.disabled = true;
-  try {
-    if (!nsec) throw Error('Enter your nsec to sign in.');
-    await signIn({ signEvent: unsigned => {
-      try { return signWithNsec(nsec, unsigned); }
-      finally { nsec = ''; }
-    } });
-  } catch (error) { setStatus('login-status', error.message, true); }
-  finally { nsec = ''; input.value = ''; button.disabled = false; }
-});
-$('bunker-toggle').addEventListener('click', () => $('bunker-box').classList.toggle('hidden'));
-$('bunker-connect').addEventListener('click', async () => {
-  try {
-    setStatus('login-status', 'Waiting for remote signer approval…');
-    const pointer = await parseBunkerInput($('bunker-url').value.trim());
-    if (!pointer) throw Error('Enter a valid bunker URL');
-    pool = new SimplePool(); bunker = BunkerSigner.fromBunker(generateSecretKey(), pointer, { pool });
-    await bunker.connect(); await signIn(bunker);
-  } catch (error) { setStatus('login-status', error.message, true); }
-});
-$('amber').addEventListener('click', async () => {
-  try {
-    if (bunker) return;
     const localSecretKey = generateSecretKey();
     const secret = bytes(crypto.getRandomValues(new Uint8Array(16)));
-    const uri = createNostrConnectURI({ clientPubkey: getPublicKey(localSecretKey), relays, secret, name: 'Number Quest', url: location.origin });
-    $('connect-uri').textContent = uri; $('connect-link').href = uri; $('connect-box').classList.remove('hidden');
-    setStatus('login-status', 'Approve this connection in Amber. Leave this page open.');
-    pool = new SimplePool(); const pending = BunkerSigner.fromURI(localSecretKey, uri, { pool });
-    if (/Android/i.test(navigator.userAgent)) location.href = uri;
-    bunker = await pending; await signIn(bunker);
-  } catch (error) { setStatus('login-status', error.message, true); bunker = null; }
+    const uri = createNostrConnectURI({ clientPubkey: getPublicKey(localSecretKey), relays, secret, perms: ['sign_event:27235'], name: 'Number Quest', url: location.origin });
+    const pending = BunkerSigner.fromURI(localSecretKey, uri, { pool, skipSwitchRelays: true }, amberAbort.signal);
+    await QRCode.toCanvas($('amber-qr'), uri, { errorCorrectionLevel: 'M', width: 280, margin: 2 });
+    if (attempt !== amberAttempt) return;
+    setStatus('login-status', 'Scan with Amber, then approve the connection and sign-in request. Keep this page open.');
+    bunker = await pending;
+    if (attempt !== amberAttempt) return;
+    await signIn(bunker);
+  } catch (error) {
+    if (attempt === amberAttempt) setStatus('login-status', `${error.message || 'Connection failed'}. Tap New code and try again.`, true);
+  }
+}
+$('menu').addEventListener('toggle', () => {
+  if ($('menu').open && !$('login').classList.contains('hidden') && !pool) void connectAmber();
 });
-$('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('connect-uri').textContent); setStatus('login-status', 'Connection link copied.'); } catch { setStatus('login-status', 'Select the link to copy it.', true); } });
+$('refresh-amber').addEventListener('click', () => { void connectAmber(); });
 $('logout').addEventListener('click', async () => {
+  amberAttempt++; amberAbort?.abort(); amberAbort = null;
   roundToken++; document.body.classList.remove('play-mode');
   clearTimeout(answerTimer); answerTimer = null; $('wrong-answer').classList.add('hidden');
   try { await request('/api/logout', 'POST'); } catch {}
@@ -230,6 +215,7 @@ $('logout').addEventListener('click', async () => {
   $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
   $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');
   $('playing').classList.add('hidden'); $('setup').classList.remove('hidden');
+  void connectAmber();
 });
 
 function showQuestion(question) {
