@@ -321,6 +321,25 @@ function showQuestion(question) {
   $('answer').value = ''; $('answer').disabled = false; $('submit').disabled = false;
   $('feedback').textContent = ''; $('answer').focus();
 }
+async function showLeaderboard() {
+  const list = $('leaderboard-list');
+  list.replaceChildren();
+  setStatus('leaderboard-status', 'Loading the last 72 hours…');
+  try {
+    const { entries } = await request('/api/leaderboard');
+    if (!entries.length) return setStatus('leaderboard-status', 'No completed games yet. Be the first!');
+    for (const entry of entries) {
+      const row = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = `${entry.rank}. ${entry.name}`;
+      const score = document.createElement('strong');
+      score.textContent = `${entry.points} ★ · ${entry.games} ${entry.games === 1 ? 'game' : 'games'}`;
+      row.append(name, score);
+      list.append(row);
+    }
+    setStatus('leaderboard-status', `${entries.length} ${entries.length === 1 ? 'player' : 'players'} in the last 72 hours`);
+  } catch { setStatus('leaderboard-status', 'Leaderboard unavailable. Your score is saved.', true); }
+}
 async function startRound(child) {
   if (!child) return;
   const token = ++roundToken;
@@ -359,8 +378,10 @@ $('form').addEventListener('submit', async event => {
       answerTimer = null;
       $('wrong-answer').classList.add('hidden');
       if (data.complete) {
+        document.body.classList.remove('play-mode');
         $('playing').classList.add('hidden'); $('complete').classList.remove('hidden');
         $('summary').textContent = `${activeChild.name} earned ${data.points} of 21 points. The verified score has been saved.`;
+        void showLeaderboard();
         try { await refreshChildren(); } catch {}
       } else showQuestion(data.next);
     }, 1000);

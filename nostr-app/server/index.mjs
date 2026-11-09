@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS children (id TEXT PRIMARY KEY, name TEXT NOT NULL, ag
 CREATE TABLE IF NOT EXISTS child_rounds (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, data TEXT NOT NULL, expires_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS child_results (id TEXT PRIMARY KEY, child_id TEXT NOT NULL, points INTEGER NOT NULL, completed_at INTEGER NOT NULL, receipt TEXT);
 CREATE TABLE IF NOT EXISTS parent_pins (parent_pubkey TEXT PRIMARY KEY, salt TEXT NOT NULL, digest TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0, locked_until INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX IF NOT EXISTS child_results_profile ON child_results(child_id);`);
+CREATE INDEX IF NOT EXISTS child_results_profile ON child_results(child_id);
+CREATE INDEX IF NOT EXISTS child_results_recent ON child_results(completed_at);`);
 db.exec('BEGIN IMMEDIATE');
 try {
   if (!db.prepare('PRAGMA table_info(parent_sessions)').all().some(c => c.name === 'parent_pubkey')) {
@@ -135,6 +136,20 @@ const server = createServer(async (req, res) => {
       return json(res, 200, { signedOut: true });
     }
     if (url.pathname === '/api/me' && req.method === 'GET') return json(res, 200, { parent, pinSet: !!pinRow(parent), rewardsEnabled: false, scoreAuthority: secret ? getPublicKey(secret) : null });
+    if (url.pathname === '/api/leaderboard' && req.method === 'GET') {
+      const cutoff = now() - 72 * 60 * 60;
+      const rows = db.prepare(`SELECT c.name, SUM(r.points) AS points, COUNT(*) AS games
+        FROM child_results r JOIN children c ON c.id = r.child_id
+        WHERE r.completed_at >= ? AND c.archived_at IS NULL
+        GROUP BY c.id ORDER BY points DESC, games DESC, c.name COLLATE NOCASE, c.id`).all(cutoff);
+      let rank = 0, previousPoints = null;
+      const entries = rows.map((row, index) => {
+        if (row.points !== previousPoints) rank = index + 1;
+        previousPoints = row.points;
+        return { rank, name: row.name.trim().split(/\s+/)[0], points: row.points, games: row.games };
+      });
+      return json(res, 200, { hours: 72, entries });
+    }
     if (url.pathname === '/api/children' && req.method === 'GET') return json(res, 200, { children: profiles(parent) });
     let data;
     try { data = raw ? JSON.parse(raw) : {}; } catch { return fail(res, 400, 'Invalid JSON'); }

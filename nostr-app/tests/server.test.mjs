@@ -85,7 +85,7 @@ test('two parents stay isolated, legacy scores migrate, and a child plays 21 ver
   assert.equal((await api('/api/children/archive', 'POST', { id: child.id, pin: '7391' }, otherCookie)).status, 404);
   assert.equal((await api('/api/round', 'POST', { childId: child.id }, otherCookie)).status, 404);
   assert.equal((await api('/api/answer', 'POST', { roundId: question.roundId, number: 1, answer: 1 }, otherCookie)).status, 404);
-  const otherCreated = await api('/api/children', 'POST', { name: 'Ben', age: 5, skill: 'beginner', operation: 'add', pin: '7391' }, otherCookie);
+  const otherCreated = await api('/api/children', 'POST', { name: 'Ben Example', age: 5, skill: 'beginner', operation: 'add', pin: '7391' }, otherCookie);
   const otherChildren = (await otherCreated.json()).children;
   assert.equal(otherChildren.length, 1);
   assert.equal(otherChildren[0].colorIndex, 0);
@@ -101,6 +101,21 @@ test('two parents stay isolated, legacy scores migrate, and a child plays 21 ver
   }
   const scores = await api('/api/children', 'GET', undefined, cookie);
   assert.equal((await scores.json()).children[0].points, 20);
+  let leaderboard = (await (await api('/api/leaderboard', 'GET', undefined, cookie)).json()).entries;
+  assert.deepEqual(leaderboard, [{ rank: 1, name: 'Ada', points: 20, games: 1 }]);
+  assert.equal((await api('/api/leaderboard')).status, 401);
+  let benQuestion = await (await api('/api/round', 'POST', { childId: otherChildren[0].id }, otherCookie)).json();
+  for (let number = 1; number <= 21; number++) {
+    const answer = benQuestion.a + benQuestion.b;
+    const scored = await (await api('/api/answer', 'POST', { roundId: benQuestion.roundId, number, answer }, otherCookie)).json();
+    if (number < 21) benQuestion = scored.next;
+  }
+  leaderboard = (await (await api('/api/leaderboard', 'GET', undefined, cookie)).json()).entries;
+  assert.deepEqual(leaderboard, [
+    { rank: 1, name: 'Ben', points: 21, games: 1 },
+    { rank: 2, name: 'Ada', points: 20, games: 1 }
+  ]);
+  assert.deepEqual((await (await api('/api/leaderboard', 'GET', undefined, otherCookie)).json()).entries, leaderboard);
   const missingProfile = await api('/api/children', 'POST', { ...updatedChild, answerMode: 'missing', pin: '4826' }, cookie);
   assert.equal((await missingProfile.json()).children[0].answerMode, 'missing');
   const missingRound = await api('/api/round', 'POST', { childId: child.id }, cookie);
