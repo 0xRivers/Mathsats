@@ -5,6 +5,7 @@ import { SimplePool } from 'nostr-tools/pool';
 const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
 const relays = ['wss://relay.nip46.com', 'wss://nrs.primal.net'];
+const compactViewport = window.matchMedia('(max-width: 720px)');
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
 let parentPin = null, pinExpires = 0, pinConfigured = false;
 let amberAttempt = 0, amberAbort = null;
@@ -275,9 +276,27 @@ async function connectAmber() {
   }
 }
 $('menu').addEventListener('toggle', () => {
-  if ($('menu').open && !$('login').classList.contains('hidden') && !pool) void connectAmber();
+  if ($('menu').open && !$('login').classList.contains('hidden') && compactViewport.matches && !pool) void connectAmber();
 });
 $('refresh-amber').addEventListener('click', () => { void connectAmber(); });
+$('connect-extension').addEventListener('click', async () => {
+  const signer = window.nostr;
+  if (!signer || typeof signer.signEvent !== 'function') {
+    setStatus('extension-status', 'No Nostr browser extension found. Enable one in this browser, then try again.', true);
+    return;
+  }
+  $('connect-extension').disabled = true;
+  setStatus('extension-status', 'Approve the sign-in request in your browser extension…');
+  try { await signIn(signer); }
+  catch (error) { setStatus('extension-status', error.message || 'Sign-in failed', true); }
+  finally { $('connect-extension').disabled = false; }
+});
+compactViewport.addEventListener('change', () => {
+  if (!compactViewport.matches) {
+    amberAttempt++; amberAbort?.abort(); amberAbort = null;
+    pool?.close(relays); pool = null; bunker = null;
+  } else if ($('menu').open && !$('login').classList.contains('hidden') && !pool) void connectAmber();
+});
 $('logout').addEventListener('click', async () => {
   amberAttempt++; amberAbort?.abort(); amberAbort = null;
   roundToken++; document.body.classList.remove('play-mode');
@@ -291,7 +310,7 @@ $('logout').addEventListener('click', async () => {
   $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
   $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');
   $('playing').classList.add('hidden'); $('setup').classList.remove('hidden');
-  void connectAmber();
+  if (compactViewport.matches) void connectAmber();
 });
 
 function showQuestion(question) {
