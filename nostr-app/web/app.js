@@ -15,6 +15,7 @@ const bytes = data => [...new Uint8Array(data)].map(n => n.toString(16).padStart
 const hash = async text => bytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 const short = key => key.slice(0, 12) + '…' + key.slice(-7);
 const operationNames = { add: 'Addition', subtract: 'Subtraction', multiply: 'Multiplication', divide: 'Division', mixed: 'Mixed' };
+const answerModeNames = { result: 'Find the answer', missing: 'Find a missing number', mixed: 'Both kinds of question' };
 const operationSymbols = { add: '+', subtract: '−', multiply: '×', divide: '÷' };
 const operationTypes = ['add', 'subtract', 'multiply', 'divide'];
 const rangesFor = child => child.operationRanges || Object.fromEntries(operationTypes.map(type => [type, child.limit ?? child.rangeLimit ?? 20]));
@@ -202,7 +203,7 @@ async function refreshChildren() {
 function showSelected() {
   $('start').disabled = !activeChild;
   $('selected-name').textContent = activeChild?.name || 'Choose a player';
-  $('selected-details').textContent = activeChild ? `${operationNames[activeChild.operation]} · ${rangeDescription(activeChild)} · ${activeChild.points} total points` : 'Open the menu to add a child.';
+  $('selected-details').textContent = activeChild ? `${operationNames[activeChild.operation]} · ${rangeDescription(activeChild)} · ${answerModeNames[activeChild.answerMode || 'result']} · ${activeChild.points} total points` : 'Open the menu to add a child.';
   if (activeChild) { applyPlayerColor($('game'), activeChild); applyPlayerColor($('selected-player'), activeChild); }
   for (const button of $('players-menu').querySelectorAll('.menu-player')) {
     button.setAttribute('aria-current', String(button.dataset.childId === activeChild?.id));
@@ -221,6 +222,7 @@ function editChild(child) {
   editing = child.id;
   $('child-name').value = child.name; $('child-age').value = child.age;
   $('child-skill').value = child.skill; $('child-operation').value = child.operation;
+  $('child-answer-mode').value = child.answerMode || 'result';
   for (const type of operationTypes) $(`range-${type}`).value = String(rangesFor(child)[type]);
   $('child-save').textContent = 'Save changes'; $('child-cancel').classList.remove('hidden');
   $('menu').open = true; $('settings').open = true; $('child-name').focus();
@@ -235,7 +237,7 @@ $('child-form').addEventListener('submit', async event => {
   try {
     if (!parentPin || pinExpires <= Date.now()) { showPinState(); throw Error('Unlock parent settings again'); }
     const operationRanges = Object.fromEntries(operationTypes.map(type => [type, Number($(`range-${type}`).value)]));
-    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value, operationRanges, rangeLimit: operationRanges[$('child-operation').value] ?? operationRanges.add, pin: parentPin };
+    const value = { name: $('child-name').value, age: Number($('child-age').value), skill: $('child-skill').value, operation: $('child-operation').value, answerMode: $('child-answer-mode').value, operationRanges, rangeLimit: operationRanges[$('child-operation').value] ?? operationRanges.add, pin: parentPin };
     if (editing) value.id = editing;
     await request('/api/children', 'POST', value);
     cancelEdit(); await refreshChildren(); setStatus('child-status', 'Saved.');
@@ -295,7 +297,7 @@ function showQuestion(question) {
   current = question;
   $('progress').textContent = `Question ${question.number} of ${question.total}`;
   showStars(question.points);
-  $('question').textContent = `${question.a} ${question.symbol} ${question.b} = ?`;
+  $('question').textContent = `${question.a ?? '?'} ${question.symbol} ${question.b ?? '?'} = ${question.result ?? '?'}`;
   $('answer').value = ''; $('answer').disabled = false; $('submit').disabled = false;
   $('feedback').textContent = ''; $('answer').focus();
 }

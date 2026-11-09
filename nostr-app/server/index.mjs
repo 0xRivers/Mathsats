@@ -63,6 +63,9 @@ try {
       setRanges.run(JSON.stringify({ add: limit, subtract: limit, multiply: limit, divide: limit }), child.id);
     }
   }
+  if (!db.prepare('PRAGMA table_info(children)').all().some(c => c.name === 'answer_mode')) {
+    db.exec("ALTER TABLE children ADD COLUMN answer_mode TEXT NOT NULL DEFAULT 'result'");
+  }
   db.exec('CREATE INDEX IF NOT EXISTS children_owner ON children(owner_pubkey)');
   db.exec('COMMIT');
 } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -75,7 +78,7 @@ const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').
 const session = req => { const token = cookies(req).ms_session; return /^[a-f0-9]{64}$/.test(token || '') ? db.prepare('SELECT parent_pubkey FROM parent_sessions WHERE token_hash = ? AND expires_at > ?').get(sha256(token), now())?.parent_pubkey : null; };
 const cookie = (value, age) => `ms_session=${value}; Path=/api; HttpOnly; SameSite=${origin.startsWith('https:') ? 'None; Secure' : 'Lax'}; Max-Age=${age}`;
 const load = id => { const row = db.prepare('SELECT data FROM child_rounds WHERE id = ?').get(id); return row && JSON.parse(row.data); };
-const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,c.color_index AS colorIndex,c.range_limit AS rangeLimit,c.operation_ranges AS operationRanges,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
+const profiles = owner => db.prepare(`SELECT c.id,c.name,c.age,c.skill,c.operation,c.answer_mode AS answerMode,c.color_index AS colorIndex,c.range_limit AS rangeLimit,c.operation_ranges AS operationRanges,COUNT(r.id) games,COALESCE(SUM(r.points),0) points
   FROM children c LEFT JOIN child_results r ON r.child_id=c.id WHERE c.archived_at IS NULL AND c.owner_pubkey = ? GROUP BY c.id ORDER BY c.name COLLATE NOCASE`).all(owner)
   .map(c => ({ ...c, operationRanges: c.operationRanges ? JSON.parse(c.operationRanges) : null, limit: c.rangeLimit ?? difficulty(c) }));
 const pinRow = parent => db.prepare('SELECT * FROM parent_pins WHERE parent_pubkey = ?').get(parent);
@@ -154,12 +157,12 @@ const server = createServer(async (req, res) => {
       if (pinError) return fail(res, pinError.status, pinError.error);
       const child = validateChild(data);
       if (data.id) {
-        const result = db.prepare('UPDATE children SET name=?,age=?,skill=?,operation=?,range_limit=?,operation_ranges=? WHERE id=? AND owner_pubkey=? AND archived_at IS NULL').run(child.name, child.age, child.skill, child.operation, child.rangeLimit, JSON.stringify(child.operationRanges), data.id, parent);
+        const result = db.prepare('UPDATE children SET name=?,age=?,skill=?,operation=?,answer_mode=?,range_limit=?,operation_ranges=? WHERE id=? AND owner_pubkey=? AND archived_at IS NULL').run(child.name, child.age, child.skill, child.operation, child.answerMode, child.rangeLimit, JSON.stringify(child.operationRanges), data.id, parent);
         if (!result.changes) return fail(res, 404, 'Child not found');
       } else {
         if (profiles(parent).length >= 100) return fail(res, 400, 'Profile limit reached');
         const nextColor = db.prepare('SELECT COALESCE(MAX(color_index), -1) + 1 AS next FROM children WHERE owner_pubkey = ?').get(parent).next;
-        db.prepare('INSERT INTO children (id,name,age,skill,operation,owner_pubkey,color_index,range_limit,operation_ranges) VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, parent, nextColor, child.rangeLimit, JSON.stringify(child.operationRanges));
+        db.prepare('INSERT INTO children (id,name,age,skill,operation,answer_mode,owner_pubkey,color_index,range_limit,operation_ranges) VALUES (?,?,?,?,?,?,?,?,?,?)').run(randomUUID(), child.name, child.age, child.skill, child.operation, child.answerMode, parent, nextColor, child.rangeLimit, JSON.stringify(child.operationRanges));
       }
       return json(res, 200, { children: profiles(parent) });
     }

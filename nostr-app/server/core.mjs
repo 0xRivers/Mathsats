@@ -22,6 +22,8 @@ export function validateChild(input) {
   if (!Number.isInteger(input.age) || input.age < 4 || input.age > 17) throw Error('Choose an age from 4 to 17');
   if (!['beginner', 'practising', 'confident'].includes(input.skill)) throw Error('Choose a skill level');
   if (!['add', 'subtract', 'multiply', 'divide', 'mixed'].includes(input.operation)) throw Error('Choose an operation');
+  const answerMode = input.answerMode ?? input.answer_mode ?? 'result';
+  if (!['result', 'missing', 'mixed'].includes(answerMode)) throw Error('Choose what to solve for');
   const rangeLimit = input.rangeLimit ?? input.range_limit ?? difficulty(input);
   if (![10, 20, 50, 100].includes(rangeLimit)) throw Error('Choose a number range');
   let supplied = input.operationRanges ?? input.operation_ranges;
@@ -32,7 +34,7 @@ export function validateChild(input) {
   const operationRanges = Object.fromEntries(operations.map(type => [type, supplied?.[type] ?? rangeLimit]));
   if (Object.keys(supplied || {}).some(type => !operations.includes(type)) ||
       Object.values(operationRanges).some(limit => ![10, 20, 50, 100].includes(limit))) throw Error('Choose a range for every equation type');
-  return { name, age: input.age, skill: input.skill, operation: input.operation, rangeLimit, operationRanges };
+  return { name, age: input.age, skill: input.skill, operation: input.operation, answerMode, rangeLimit, operationRanges };
 }
 
 export function difficulty(child) {
@@ -47,7 +49,9 @@ export function makeRound(child) {
   const roundOperations = profile.operation === 'mixed' ? operations : [profile.operation];
   const questions = Array.from({ length: 21 }, (_, i) => {
     const type = roundOperations[i % roundOperations.length];
-    return makeProblem(type, profile.operationRanges[type]);
+    const q = makeProblem(type, profile.operationRanges[type]);
+    const blank = profile.answerMode === 'result' ? 'result' : profile.answerMode === 'missing' ? ['a', 'b'][i % 2] : ['a', 'b', 'result'][i % 3];
+    return { ...q, result: q.answer, blank, answer: blank === 'result' ? q.answer : q[blank] };
   });
   return { id: randomUUID(), childId: child.id, questions, index: 0, points: 0, createdAt: now(), expiresAt: now() + 60 * 60 };
 }
@@ -67,7 +71,11 @@ export function checkAuth(header, method, absoluteUrl, body, clock = now()) {
 
 export function publicQuestion(round) {
   const q = round.questions[round.index];
-  return q ? { roundId: round.id, childId: round.childId, number: round.index + 1, total: 21, a: q.a, b: q.b, symbol: q.symbol, points: round.points } : null;
+  if (!q) return null;
+  const blank = q.blank || 'result';
+  return { roundId: round.id, childId: round.childId, number: round.index + 1, total: 21,
+    a: blank === 'a' ? null : q.a, b: blank === 'b' ? null : q.b,
+    result: blank === 'result' ? null : (q.result ?? q.answer), symbol: q.symbol, points: round.points };
 }
 
 export function scoreAnswer(round, answer) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure';
-import { checkAuth, difficulty, makeProblem, makeRound, scoreAnswer, sha256, validateChild } from '../server/core.mjs';
+import { checkAuth, difficulty, makeProblem, makeRound, publicQuestion, scoreAnswer, sha256, validateChild } from '../server/core.mjs';
 
 test('questions stay within the selected range and carry the correct answer', () => {
   for (const limit of [10, 20, 50, 100]) for (const op of ['add', 'subtract', 'multiply', 'divide']) {
@@ -57,6 +57,27 @@ test('mixed rounds respect a different range for each equation type', () => {
     assert.ok(question.answer <= limits[index % 4]);
   });
   assert.throws(() => validateChild({ name: 'Ada', age: 8, skill: 'practising', operation: 'mixed', operationRanges: { ...operationRanges, divide: 200 } }));
+});
+
+test('optional missing numbers work in every operation without exposing the answer', () => {
+  for (const operation of ['add', 'subtract', 'multiply', 'divide', 'mixed']) {
+    for (const answerMode of ['result', 'missing', 'mixed']) {
+      const round = makeRound({ id: 'ada', name: 'Ada', age: 8, skill: 'practising', operation, answerMode,
+        operationRanges: { add: 10, subtract: 20, multiply: 50, divide: 100 } });
+      assert.equal(round.questions.length, 21);
+      for (let i = 0; i < 21; i++) {
+        round.index = i;
+        const q = round.questions[i];
+        const visible = publicQuestion(round);
+        assert.equal([visible.a, visible.b, visible.result].filter(value => value === null).length, 1);
+        assert.equal(q.answer, q.blank === 'a' ? q.a : q.blank === 'b' ? q.b : q.result);
+        assert.ok(q.answer >= 1 && q.answer <= 100);
+        assert.equal(q.symbol === '+' ? q.a + q.b : q.symbol === '−' ? q.a - q.b : q.symbol === '×' ? q.a * q.b : q.a / q.b, q.result);
+        assert.equal(q.blank === 'result', answerMode === 'result' ? true : answerMode === 'missing' ? false : i % 3 === 2);
+      }
+    }
+  }
+  assert.throws(() => validateChild({ name: 'Ada', age: 8, skill: 'practising', operation: 'add', answerMode: 'unknown' }));
 });
 
 test('NIP-98 binds method, URL, body, time and signature', () => {

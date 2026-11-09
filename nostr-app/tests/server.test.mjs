@@ -101,6 +101,14 @@ test('two parents stay isolated, legacy scores migrate, and a child plays 21 ver
   }
   const scores = await api('/api/children', 'GET', undefined, cookie);
   assert.equal((await scores.json()).children[0].points, 20);
+  const missingProfile = await api('/api/children', 'POST', { ...updatedChild, answerMode: 'missing', pin: '4826' }, cookie);
+  assert.equal((await missingProfile.json()).children[0].answerMode, 'missing');
+  const missingRound = await api('/api/round', 'POST', { childId: child.id }, cookie);
+  const missingQuestion = await missingRound.json();
+  assert.equal(missingQuestion.a, null);
+  assert.equal(typeof missingQuestion.result, 'number');
+  const solved = await api('/api/answer', 'POST', { roundId: missingQuestion.roundId, number: 1, answer: missingQuestion.result - missingQuestion.b }, cookie);
+  assert.equal((await solved.json()).correct, true);
   await api('/api/logout', 'POST', {}, cookie);
   assert.equal((await api('/api/children', 'GET', undefined, cookie)).status, 401);
 });
