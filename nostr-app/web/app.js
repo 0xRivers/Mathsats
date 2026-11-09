@@ -6,6 +6,9 @@ const $ = id => document.getElementById(id);
 const API = (import.meta.env.VITE_API_ORIGIN || (location.hostname === 'localhost' && location.protocol === 'https:' ? 'https://numbers.teamtoxic.xyz' : location.origin)).replace(/\/$/, '');
 const relays = ['wss://relay.nip46.com', 'wss://nrs.primal.net'];
 const compactViewport = window.matchMedia('(max-width: 720px)');
+const androidDevice = /Android/i.test(navigator.userAgent);
+if (androidDevice) document.documentElement.classList.add('android-signer');
+const prefersAmber = () => androidDevice || compactViewport.matches;
 let bunker = null, pool = null, current = null, activeChild = null, editing = null, children = [];
 let parentPin = null, pinExpires = 0, pinConfigured = false;
 let amberAttempt = 0, amberAbort = null;
@@ -276,7 +279,7 @@ async function connectAmber() {
   }
 }
 $('menu').addEventListener('toggle', () => {
-  if ($('menu').open && !$('login').classList.contains('hidden') && compactViewport.matches && !pool) void connectAmber();
+  if ($('menu').open && !$('login').classList.contains('hidden') && prefersAmber() && !pool) void connectAmber();
 });
 $('refresh-amber').addEventListener('click', () => { void connectAmber(); });
 $('connect-extension').addEventListener('click', async () => {
@@ -292,7 +295,7 @@ $('connect-extension').addEventListener('click', async () => {
   finally { $('connect-extension').disabled = false; }
 });
 compactViewport.addEventListener('change', () => {
-  if (!compactViewport.matches) {
+  if (!prefersAmber()) {
     amberAttempt++; amberAbort?.abort(); amberAbort = null;
     pool?.close(relays); pool = null; bunker = null;
   } else if ($('menu').open && !$('login').classList.contains('hidden') && !pool) void connectAmber();
@@ -310,7 +313,7 @@ $('logout').addEventListener('click', async () => {
   $('signin-hint').classList.remove('hidden'); $('game').classList.add('hidden'); $('menu').open = true;
   $('game').style.removeProperty('--player-accent'); $('game').style.removeProperty('--player-tint');
   $('playing').classList.add('hidden'); $('setup').classList.remove('hidden');
-  if (compactViewport.matches) void connectAmber();
+  if (prefersAmber()) void connectAmber();
 });
 
 function showQuestion(question) {
